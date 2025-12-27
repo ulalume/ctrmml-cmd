@@ -1,0 +1,114 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: arm64
+            os_name: macos
+            arch: arm64
+            archive_ext: tar.gz
+            bin_ext: ""
+          - os: macos-14
+            target: x86_64
+            os_name: macos
+            arch: x64
+            archive_ext: tar.gz
+            bin_ext: ""
+          - os: ubuntu-22.04
+            target: x86_64
+            os_name: linux
+            arch: x64
+            archive_ext: tar.gz
+            bin_ext: ""
+          - os: ubuntu-22.04
+            target: aarch64
+            os_name: linux
+            arch: arm64
+            archive_ext: tar.gz
+            bin_ext: ""
+          - os: windows-2022
+            target: x86_64
+            os_name: windows
+            arch: x64
+            archive_ext: zip
+            bin_ext: ".exe"
+          - os: windows-2022
+            target: aarch64
+            os_name: windows
+            arch: arm64
+            archive_ext: zip
+            bin_ext: ".exe"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux cross-compiler
+        if: matrix.os == 'ubuntu-22.04' && matrix.target == 'aarch64'
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross
+
+      - name: Configure (macOS)
+        if: matrix.os == 'macos-14'
+        run: |
+          cmake -S . -B build             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.target }}
+
+      - name: Configure (Linux aarch64)
+        if: matrix.os == 'ubuntu-22.04' && matrix.target == 'aarch64'
+        run: |
+          cmake -S . -B build             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_SYSTEM_NAME=Linux             -DCMAKE_SYSTEM_PROCESSOR=aarch64             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc             -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
+
+      - name: Configure (Linux x64)
+        if: matrix.os == 'ubuntu-22.04' && matrix.target == 'x86_64'
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Configure (Windows)
+        if: matrix.os == 'windows-2022'
+        shell: pwsh
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Package (unix)
+        if: matrix.os != 'windows-2022'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          BIN="ctrmml-cmd${{ matrix.bin_ext }}"
+          SRC="build/${BIN}"
+          DEST_DIR="dist"
+          mkdir -p "${DEST_DIR}"
+          mkdir -p package
+          cp "${SRC}" "package/${BIN}"
+          tar -czf "${DEST_DIR}/ctrmml-cmd-${VERSION}-${{ matrix.os_name }}-${{ matrix.arch }}.${{ matrix.archive_ext }}" -C package "${BIN}"
+
+      - name: Package (windows)
+        if: matrix.os == 'windows-2022'
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace '^v',''
+          $bin = "ctrmml-cmd${{ matrix.bin_ext }}"
+          $src = "build/Release/${bin}"
+          $dest = "dist"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item $src $bin
+          $zip = "${dest}/ctrmml-cmd-${version}-${{ matrix.os_name }}-${{ matrix.arch }}.${{ matrix.archive_ext }}"
+          Compress-Archive -Path $bin -DestinationPath $zip -Force
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
