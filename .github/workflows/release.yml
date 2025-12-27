@@ -55,28 +55,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Enable arm64 apt (Linux aarch64)
+        if: matrix.os == 'ubuntu-22.04' && matrix.target == 'aarch64'
+        run: |
+          sudo dpkg --add-architecture arm64
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse" | sudo tee /etc/apt/sources.list.d/arm64.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/arm64.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/arm64.list
+          sudo apt-get update
+
       - name: Install Linux cross-compiler
         if: matrix.os == 'ubuntu-22.04' && matrix.target == 'aarch64'
-        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross zlib1g-dev:arm64
+        run: sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross zlib1g-dev:arm64
 
       - name: Configure (macOS)
         if: matrix.os == 'macos-14'
         run: |
-          cmake -S . -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.target }}
+          cmake -S . -B build             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.target }}
 
       - name: Configure (Linux aarch64)
         if: matrix.os == 'ubuntu-22.04' && matrix.target == 'aarch64'
         run: |
-          cmake -S . -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_SYSTEM_NAME=Linux \
-            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
-            -DZLIB_LIBRARY=/usr/aarch64-linux-gnu/lib/libz.so \
-            -DZLIB_INCLUDE_DIR=/usr/aarch64-linux-gnu/include
+          cmake -S . -B build             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_SYSTEM_NAME=Linux             -DCMAKE_SYSTEM_PROCESSOR=aarch64             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc             -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++             -DZLIB_LIBRARY=/usr/aarch64-linux-gnu/lib/libz.so             -DZLIB_INCLUDE_DIR=/usr/aarch64-linux-gnu/include
 
       - name: Configure (Linux x64)
         if: matrix.os == 'ubuntu-22.04' && matrix.target == 'x86_64'
@@ -127,7 +127,28 @@ jobs:
           $zip = "${dest}/ctrmml-cmd-${version}-${{ matrix.os_name }}-${{ matrix.arch }}.${{ matrix.archive_ext }}"
           Compress-Archive -Path $bin -DestinationPath $zip -Force
 
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os_name }}-${{ matrix.arch }}
+          path: dist/*
+
+  release:
+    runs-on: ubuntu-22.04
+    needs: build
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Flatten artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          find dist -type f -maxdepth 3 -print0 | xargs -0 -I{} mv {} release/
+
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          files: release/*

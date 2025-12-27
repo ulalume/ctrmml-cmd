@@ -37,6 +37,12 @@ set(SNDEMU_YM2612_ALL ON CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(ctrmml libvgm)
 
+if(TARGET ctrmml)
+  if(MSVC)
+    target_compile_options(ctrmml PRIVATE /FIstring)
+  endif()
+endif()
+
 # Do not build native CLI tools from ctrmml if present.
 foreach(tgt mmlc mdslink)
   if(TARGET ${tgt})
@@ -71,3 +77,7 @@ target_link_libraries(ctrmml-cmd PRIVATE
   vgm-player)
 
 target_compile_definitions(ctrmml-cmd PRIVATE -DLOCAL_LIBVGM)
+
+if(WIN32)
+  target_link_libraries(ctrmml-cmd PRIVATE winmm ole32 dsound uuid)
+endif()
