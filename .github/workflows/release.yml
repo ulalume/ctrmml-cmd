@@ -121,12 +121,12 @@ jobs:
       - name: Configure (Windows)
         if: matrix.os == 'windows-2022' && matrix.target == 'x86_64'
         shell: pwsh
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -A x64 -DPKG_CONFIG_EXECUTABLE=C:/ProgramData/chocolatey/bin/pkg-config.exe -DZLIB_LIBRARY=$env:ZLIB_LIBRARY -DZLIB_INCLUDE_DIR=$env:ZLIB_INCLUDE_DIR
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -A x64 -DPKG_CONFIG_EXECUTABLE=C:/ProgramData/chocolatey/bin/pkg-config.exe -DZLIB_LIBRARY="$env:ZLIB_LIBRARY" -DZLIB_INCLUDE_DIR="$env:ZLIB_INCLUDE_DIR"
 
       - name: Configure (Windows ARM64)
         if: matrix.os == 'windows-2022' && matrix.target == 'aarch64'
         shell: pwsh
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -A ARM64 -DPKG_CONFIG_EXECUTABLE=C:/ProgramData/chocolatey/bin/pkg-config.exe -DZLIB_LIBRARY=$env:ZLIB_LIBRARY -DZLIB_INCLUDE_DIR=$env:ZLIB_INCLUDE_DIR
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -A ARM64 -DPKG_CONFIG_EXECUTABLE=C:/ProgramData/chocolatey/bin/pkg-config.exe -DZLIB_LIBRARY="$env:ZLIB_LIBRARY" -DZLIB_INCLUDE_DIR="$env:ZLIB_INCLUDE_DIR"
 
       - name: Build
         run: cmake --build build --config Release
