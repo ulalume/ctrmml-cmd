@@ -83,7 +83,7 @@ jobs:
       - name: Configure (Linux aarch64)
         if: matrix.os == 'ubuntu-22.04' && matrix.target == 'aarch64'
         run: |
-          cmake -S . -B build             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_SYSTEM_NAME=Linux             -DCMAKE_SYSTEM_PROCESSOR=aarch64             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc             -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++             -DZLIB_LIBRARY=/usr/aarch64-linux-gnu/lib/libz.so             -DZLIB_INCLUDE_DIR=/usr/aarch64-linux-gnu/include
+          cmake -S . -B build             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_SYSTEM_NAME=Linux             -DCMAKE_SYSTEM_PROCESSOR=aarch64             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc             -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++             -DZLIB_LIBRARY=/usr/lib/aarch64-linux-gnu/libz.so             -DZLIB_INCLUDE_DIR=/usr/aarch64-linux-gnu/include
 
       - name: Configure (Linux x64)
         if: matrix.os == 'ubuntu-22.04' && matrix.target == 'x86_64'
@@ -94,15 +94,27 @@ jobs:
         shell: pwsh
         run: choco install -y pkgconfiglite
 
+      - name: Build zlib (Windows)
+        if: matrix.os == 'windows-2022'
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/madler/zlib zlib
+          if ("${{ matrix.target }}" -eq "aarch64") {
+            cmake -S zlib -B zlib/build -A ARM64 -DCMAKE_BUILD_TYPE=Release
+          } else {
+            cmake -S zlib -B zlib/build -A x64 -DCMAKE_BUILD_TYPE=Release
+          }
+          cmake --build zlib/build --config Release
+
       - name: Configure (Windows)
         if: matrix.os == 'windows-2022' && matrix.target == 'x86_64'
         shell: pwsh
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -A x64 -DPKG_CONFIG_EXECUTABLE=C:/ProgramData/chocolatey/bin/pkg-config.exe
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -A x64 -DPKG_CONFIG_EXECUTABLE=C:/ProgramData/chocolatey/bin/pkg-config.exe -DZLIB_LIBRARY=D:/a/ctrmml-cmd/ctrmml-cmd/zlib/build/Release/zlibstatic.lib -DZLIB_INCLUDE_DIR=D:/a/ctrmml-cmd/ctrmml-cmd/zlib
 
       - name: Configure (Windows ARM64)
         if: matrix.os == 'windows-2022' && matrix.target == 'aarch64'
         shell: pwsh
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -A ARM64 -DPKG_CONFIG_EXECUTABLE=C:/ProgramData/chocolatey/bin/pkg-config.exe
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -A ARM64 -DPKG_CONFIG_EXECUTABLE=C:/ProgramData/chocolatey/bin/pkg-config.exe -DZLIB_LIBRARY=D:/a/ctrmml-cmd/ctrmml-cmd/zlib/build/Release/zlibstatic.lib -DZLIB_INCLUDE_DIR=D:/a/ctrmml-cmd/ctrmml-cmd/zlib
 
       - name: Build
         run: cmake --build build --config Release
