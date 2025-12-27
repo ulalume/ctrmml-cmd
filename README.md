@@ -34,6 +34,9 @@ JSON lines to stdout:
 ## Requirements
 
 - CMake and a C++ compiler (C++17).
+- Depends on ctrmml and libvgm.
+  - https://github.com/superctr/ctrmml
+  - https://github.com/ValleyBell/libvgm
 
 ## Build
 
