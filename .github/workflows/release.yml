@@ -100,21 +100,23 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/madler/zlib zlib
           if ("${{ matrix.target }}" -eq "aarch64") {
-            cmake -S zlib -B zlib/build -A ARM64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=zlib/install
+            cmake -S zlib -B zlib/build -A ARM64
           } else {
-            cmake -S zlib -B zlib/build -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=zlib/install
+            cmake -S zlib -B zlib/build -A x64
           }
           cmake --build zlib/build --config Release --target zlibstatic
-          cmake --install zlib/build --config Release
-          $lib = "D:/a/ctrmml-cmd/ctrmml-cmd/zlib/install/lib/zlibstatic.lib"
-          if (-not (Test-Path $lib)) {
-            $lib = "D:/a/ctrmml-cmd/ctrmml-cmd/zlib/install/lib/zlib.lib"
+          $lib = Get-ChildItem -Path zlib/build -Recurse -Filter "zs.lib" | Select-Object -First 1
+          if (-not $lib) {
+            $lib = Get-ChildItem -Path zlib/build -Recurse -Filter "zlibstatic.lib" | Select-Object -First 1
           }
-          if (-not (Test-Path $lib)) {
+          if (-not $lib) {
+            $lib = Get-ChildItem -Path zlib/build -Recurse -Filter "zlib.lib" | Select-Object -First 1
+          }
+          if (-not $lib) {
             throw "zlib library not found"
           }
-          "ZLIB_LIBRARY=$lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "ZLIB_INCLUDE_DIR=D:/a/ctrmml-cmd/ctrmml-cmd/zlib/install/include" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ZLIB_LIBRARY=$($lib.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ZLIB_INCLUDE_DIR=D:/a/ctrmml-cmd/ctrmml-cmd/zlib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Configure (Windows)
         if: matrix.os == 'windows-2022' && matrix.target == 'x86_64'
