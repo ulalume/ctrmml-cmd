@@ -78,6 +78,10 @@ target_link_libraries(ctrmml-cmd PRIVATE
 
 target_compile_definitions(ctrmml-cmd PRIVATE -DLOCAL_LIBVGM)
 
+if(MSVC)
+  target_compile_options(ctrmml-cmd PRIVATE /FIstring)
+endif()
+
 if(WIN32)
   target_link_libraries(ctrmml-cmd PRIVATE winmm ole32 dsound uuid)
 endif()
