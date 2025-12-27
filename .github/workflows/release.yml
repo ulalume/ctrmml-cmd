@@ -105,16 +105,25 @@ jobs:
             cmake -S zlib -B zlib/build -A x64 -DCMAKE_BUILD_TYPE=Release
           }
           cmake --build zlib/build --config Release
+          $lib = Get-ChildItem -Path zlib/build -Recurse -Filter "zlibstatic.lib" | Select-Object -First 1
+          if (-not $lib) {
+            $lib = Get-ChildItem -Path zlib/build -Recurse -Filter "zlib.lib" | Select-Object -First 1
+          }
+          if (-not $lib) {
+            throw "zlib library not found"
+          }
+          "ZLIB_LIBRARY=$($lib.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ZLIB_INCLUDE_DIR=D:/a/ctrmml-cmd/ctrmml-cmd/zlib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Configure (Windows)
         if: matrix.os == 'windows-2022' && matrix.target == 'x86_64'
         shell: pwsh
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -A x64 -DPKG_CONFIG_EXECUTABLE=C:/ProgramData/chocolatey/bin/pkg-config.exe -DZLIB_LIBRARY=D:/a/ctrmml-cmd/ctrmml-cmd/zlib/build/Release/zlibstatic.lib -DZLIB_INCLUDE_DIR=D:/a/ctrmml-cmd/ctrmml-cmd/zlib
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -A x64 -DPKG_CONFIG_EXECUTABLE=C:/ProgramData/chocolatey/bin/pkg-config.exe -DZLIB_LIBRARY=$env:ZLIB_LIBRARY -DZLIB_INCLUDE_DIR=$env:ZLIB_INCLUDE_DIR
 
       - name: Configure (Windows ARM64)
         if: matrix.os == 'windows-2022' && matrix.target == 'aarch64'
         shell: pwsh
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -A ARM64 -DPKG_CONFIG_EXECUTABLE=C:/ProgramData/chocolatey/bin/pkg-config.exe -DZLIB_LIBRARY=D:/a/ctrmml-cmd/ctrmml-cmd/zlib/build/Release/zlibstatic.lib -DZLIB_INCLUDE_DIR=D:/a/ctrmml-cmd/ctrmml-cmd/zlib
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -A ARM64 -DPKG_CONFIG_EXECUTABLE=C:/ProgramData/chocolatey/bin/pkg-config.exe -DZLIB_LIBRARY=$env:ZLIB_LIBRARY -DZLIB_INCLUDE_DIR=$env:ZLIB_INCLUDE_DIR
 
       - name: Build
         run: cmake --build build --config Release
