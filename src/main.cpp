@@ -196,6 +196,8 @@ int main(int argc, char **argv)
 		std::string out_path;
 		bool want_vgm = false;
 		bool want_wav = false;
+		bool use_stdin = (file == "--stdin" || file == "-");
+		std::string display_path;
 		for (int i = 3; i < argc; ++i)
 		{
 			std::string arg = argv[i];
@@ -205,11 +207,33 @@ int main(int argc, char **argv)
 				want_wav = true;
 			else if (arg == "--out" && i + 1 < argc)
 				out_path = argv[++i];
+			else if (arg == "--path" && i + 1 < argc)
+				display_path = argv[++i];
 		}
 
-		std::filesystem::path path(file);
+		std::filesystem::path path_for_out = use_stdin && !display_path.empty()
+			? std::filesystem::absolute(display_path)
+			: std::filesystem::path(file);
 		if (out_path.empty())
-			out_path = path.replace_extension(want_wav ? ".wav" : ".vgm").string();
+			out_path = path_for_out.replace_extension(want_wav ? ".wav" : ".vgm").string();
+
+		if (use_stdin)
+		{
+			std::ostringstream buffer;
+			buffer << std::cin.rdbuf();
+			std::string input = buffer.str();
+			std::string base_dir = std::filesystem::current_path().string();
+			std::string display_name = "<stdin>";
+			if (!display_path.empty())
+			{
+				std::filesystem::path display_fs = std::filesystem::absolute(display_path);
+				base_dir = display_fs.parent_path().string();
+				display_name = display_fs.string();
+			}
+			if (want_wav)
+				return export_wav_text(input, base_dir, display_name, out_path) ? 0 : 1;
+			return export_vgm_text(input, base_dir, display_name, out_path) ? 0 : 1;
+		}
 
 		if (want_wav)
 			return export_wav(file, out_path) ? 0 : 1;
@@ -222,6 +246,8 @@ int main(int argc, char **argv)
 		uint32_t start_col = 0;
 		bool has_start = false;
 		bool follow = false;
+		bool use_stdin = (file == "--stdin" || file == "-");
+		std::string display_path;
 		for (int i = 3; i < argc; ++i)
 		{
 			std::string arg = argv[i];
@@ -233,9 +259,32 @@ int main(int argc, char **argv)
 			{
 				follow = true;
 			}
+			else if (arg == "--path" && i + 1 < argc)
+			{
+				display_path = argv[++i];
+			}
 		}
 
-		auto compile = compile_mml_file(file);
+		CompileResult compile{};
+		if (use_stdin)
+		{
+			std::ostringstream buffer;
+			buffer << std::cin.rdbuf();
+			std::string input = buffer.str();
+			std::string base_dir = std::filesystem::current_path().string();
+			std::string display_name = "<stdin>";
+			if (!display_path.empty())
+			{
+				std::filesystem::path display_fs = std::filesystem::absolute(display_path);
+				base_dir = display_fs.parent_path().string();
+				display_name = display_fs.string();
+			}
+			compile = compile_mml_text(input, base_dir, display_name);
+		}
+		else
+		{
+			compile = compile_mml_file(file);
+		}
 		if (!compile.song)
 		{
 			std::cerr << compile.error << std::endl;

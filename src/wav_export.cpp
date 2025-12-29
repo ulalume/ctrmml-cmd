@@ -146,6 +146,117 @@ namespace
 	{
 		return fwrite(data, (kWavBitDepth / 8) * kWavChannels, frame_count, f) == frame_count;
 	}
+
+	bool export_wav_song(const std::shared_ptr<Song> &song, const std::string &out_path)
+	{
+		if (!song)
+			return false;
+
+		std::vector<uint8_t> data = song->get_platform()->get_export_data(*song.get(), 0);
+		if (data.empty())
+		{
+			std::cerr << "failed to export vgm data" << std::endl;
+			return false;
+		}
+
+		PlayerA player;
+		player.RegisterPlayerEngine(new VGMPlayer);
+		player.RegisterPlayerEngine(new S98Player);
+		player.RegisterPlayerEngine(new DROPlayer);
+		player.RegisterPlayerEngine(new GYMPlayer);
+
+		if (player.SetOutputSettings(kWavSampleRate, kWavChannels, kWavBitDepth, kWavBufferFrames))
+		{
+			std::cerr << "unsupported sample rate / bit depth" << std::endl;
+			return false;
+		}
+
+		PlayerA::Config config = player.GetConfiguration();
+		config.masterVol = 0x10000;
+		config.loopCount = kWavLoops;
+		config.fadeSmpls = kWavSampleRate * kWavFadeSeconds;
+		config.endSilenceSmpls = 0;
+		config.pbSpeed = 1.0;
+		player.SetConfiguration(config);
+
+		FILE *out = fopen(out_path.c_str(), "wb");
+		if (!out)
+		{
+			std::cerr << "unable to open output file" << std::endl;
+			return false;
+		}
+
+		DATA_LOADER *loader = MemoryLoader_Init(reinterpret_cast<const UINT8 *>(data.data()),
+																						static_cast<UINT32>(data.size()));
+		if (!loader)
+		{
+			std::cerr << "failed to create memory loader" << std::endl;
+			fclose(out);
+			return false;
+		}
+
+		DataLoader_SetPreloadBytes(loader, 0x100);
+		if (DataLoader_Load(loader))
+		{
+			std::cerr << "failed to load vgm data" << std::endl;
+			MemoryLoader_Deinit(loader);
+			fclose(out);
+			return false;
+		}
+
+		if (player.LoadFile(loader))
+		{
+			std::cerr << "failed to load vgm data" << std::endl;
+			MemoryLoader_Deinit(loader);
+			fclose(out);
+			return false;
+		}
+
+		PlayerBase *engine = player.GetPlayer();
+		if (engine && engine->GetPlayerType() == FCC_VGM)
+		{
+			auto *vgmplayer = dynamic_cast<VGMPlayer *>(engine);
+			if (vgmplayer)
+				player.SetLoopCount(vgmplayer->GetModifiedLoopCount(kWavLoops));
+		}
+
+		player.Start();
+
+		unsigned int total_frames = 0;
+		if (engine)
+			total_frames = engine->Tick2Sample(engine->GetTotalPlayTicks(kWavLoops));
+		if (engine && engine->GetLoopTicks())
+			total_frames += kWavSampleRate * kWavFadeSeconds;
+
+		if (!write_wav_header(out, total_frames))
+		{
+			std::cerr << "failed to write wav header" << std::endl;
+			player.Stop();
+			player.UnloadFile();
+			MemoryLoader_Deinit(loader);
+			fclose(out);
+			return false;
+		}
+
+		std::vector<UINT8> packed(sizeof(INT32) * kWavChannels * kWavBufferFrames);
+		while (total_frames)
+		{
+			unsigned int cur_frames = (kWavBufferFrames > total_frames) ? total_frames : kWavBufferFrames;
+			std::memset(packed.data(), 0, packed.size());
+			player.Render(cur_frames * ((kWavBitDepth / 8) * kWavChannels), packed.data());
+			frames_to_little_endian(packed.data(), cur_frames);
+			if (!write_frames(out, cur_frames, packed.data()))
+				break;
+			total_frames -= cur_frames;
+		}
+
+		player.Stop();
+		player.UnloadFile();
+		player.UnregisterAllPlayers();
+		MemoryLoader_Deinit(loader);
+		fclose(out);
+		return true;
+	}
 }
 
 bool export_wav(const std::string &in_path, const std::string &out_path)
@@ -156,109 +267,16 @@ bool export_wav(const std::string &in_path, const std::string &out_path)
 		std::cerr << compile.error << std::endl;
 		return false;
 	}
+	return export_wav_song(compile.song, out_path);
+}
 
-	std::vector<uint8_t> data = compile.song->get_platform()->get_export_data(*compile.song.get(), 0);
-	if (data.empty())
+bool export_wav_text(const std::string &text, const std::string &base_path, const std::string &display_name, const std::string &out_path)
+{
+	auto compile = compile_mml_text(text, base_path, display_name);
+	if (!compile.song)
 	{
-		std::cerr << "failed to export vgm data\n";
+		std::cerr << compile.error << std::endl;
 		return false;
 	}
-
-	PlayerA player;
-	player.RegisterPlayerEngine(new VGMPlayer);
-	player.RegisterPlayerEngine(new S98Player);
-	player.RegisterPlayerEngine(new DROPlayer);
-	player.RegisterPlayerEngine(new GYMPlayer);
-
-	if (player.SetOutputSettings(kWavSampleRate, kWavChannels, kWavBitDepth, kWavBufferFrames))
-	{
-		std::cerr << "unsupported sample rate / bit depth\n";
-		return false;
-	}
-
-	PlayerA::Config config = player.GetConfiguration();
-	config.masterVol = 0x10000;
-	config.loopCount = kWavLoops;
-	config.fadeSmpls = kWavSampleRate * kWavFadeSeconds;
-	config.endSilenceSmpls = 0;
-	config.pbSpeed = 1.0;
-	player.SetConfiguration(config);
-
-	FILE *out = fopen(out_path.c_str(), "wb");
-	if (!out)
-	{
-		std::cerr << "unable to open output file\n";
-		return false;
-	}
-
-	DATA_LOADER *loader = MemoryLoader_Init(reinterpret_cast<const UINT8 *>(data.data()),
-																					static_cast<UINT32>(data.size()));
-	if (!loader)
-	{
-		std::cerr << "failed to create memory loader\n";
-		fclose(out);
-		return false;
-	}
-
-	DataLoader_SetPreloadBytes(loader, 0x100);
-	if (DataLoader_Load(loader))
-	{
-		std::cerr << "failed to load vgm data\n";
-		MemoryLoader_Deinit(loader);
-		fclose(out);
-		return false;
-	}
-
-	if (player.LoadFile(loader))
-	{
-		std::cerr << "failed to load vgm data\n";
-		MemoryLoader_Deinit(loader);
-		fclose(out);
-		return false;
-	}
-
-	PlayerBase *engine = player.GetPlayer();
-	if (engine && engine->GetPlayerType() == FCC_VGM)
-	{
-		auto *vgmplayer = dynamic_cast<VGMPlayer *>(engine);
-		if (vgmplayer)
-			player.SetLoopCount(vgmplayer->GetModifiedLoopCount(kWavLoops));
-	}
-
-	player.Start();
-
-	unsigned int total_frames = 0;
-	if (engine)
-		total_frames = engine->Tick2Sample(engine->GetTotalPlayTicks(kWavLoops));
-	if (engine && engine->GetLoopTicks())
-		total_frames += kWavSampleRate * kWavFadeSeconds;
-
-	if (!write_wav_header(out, total_frames))
-	{
-		std::cerr << "failed to write wav header\n";
-		player.Stop();
-		player.UnloadFile();
-		MemoryLoader_Deinit(loader);
-		fclose(out);
-		return false;
-	}
-
-	std::vector<UINT8> packed(sizeof(INT32) * kWavChannels * kWavBufferFrames);
-	while (total_frames)
-	{
-		unsigned int cur_frames = (kWavBufferFrames > total_frames) ? total_frames : kWavBufferFrames;
-		std::memset(packed.data(), 0, packed.size());
-		player.Render(cur_frames * ((kWavBitDepth / 8) * kWavChannels), packed.data());
-		frames_to_little_endian(packed.data(), cur_frames);
-		if (!write_frames(out, cur_frames, packed.data()))
-			break;
-		total_frames -= cur_frames;
-	}
-
-	player.Stop();
-	player.UnloadFile();
-	player.UnregisterAllPlayers();
-	MemoryLoader_Deinit(loader);
-	fclose(out);
-	return true;
+	return export_wav_song(compile.song, out_path);
 }

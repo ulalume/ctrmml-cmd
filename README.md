@@ -4,14 +4,15 @@ CLI for ctrmml playback, export, and highlight streaming.
 
 ## Subcommands
 
-- `play <path>`
+- `play <path>` or `play --stdin --path <path>`
   - Options:
     - `--start line:col` (play from cursor; uses nearest event at/after this position)
     - `--follow` (emit highlight updates while playing)
 - `stop`
-- `export <path>`
+- `export <path>` or `export --stdin --path <path>`
   - `--vgm` or `--wav`
   - `--out <path>` (defaults to same dir/name with .vgm/.wav)
+- `check <path>` or `check --stdin --path <path>`
 
 ## Highlight output (when `--follow`)
 
@@ -30,6 +31,10 @@ JSON lines to stdout:
 
 - `line` and `col` are 0-based, matching `InputRef` (`get_line`, `get_column`).
 - Multiple positions represent simultaneous tracks.
+
+## STDIN mode
+
+Use `--stdin --path <path>` when you want to pass MML via stdin. The `--path` value is used as the base path for resolving relative assets.
 
 ## Requirements
 
