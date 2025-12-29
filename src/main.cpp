@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -25,7 +26,6 @@
 #include <signal.h>
 #include <unistd.h>
 #endif
-
 
 namespace
 {
@@ -54,7 +54,7 @@ namespace
 		std::filesystem::remove(pid_path(), ec);
 	}
 
-	bool parse_line_col(const std::string& value, uint32_t& line, uint32_t& col)
+	bool parse_line_col(const std::string &value, uint32_t &line, uint32_t &col)
 	{
 		auto pos = value.find(':');
 		if (pos == std::string::npos)
@@ -74,9 +74,10 @@ namespace
 	void print_usage()
 	{
 		std::cerr << "Usage:\n"
-				  << "  ctrmml-cmd play <file> [--start line:col] [--follow]\n"
-				  << "  ctrmml-cmd stop\n"
-				  << "  ctrmml-cmd export <file> --vgm|--wav [--out path]\n";
+							<< "  ctrmml-cmd play <file> [--start line:col] [--follow]\n"
+							<< "  ctrmml-cmd stop\n"
+							<< "  ctrmml-cmd check <file>\n"
+							<< "  ctrmml-cmd export <file> --vgm|--wav [--out path]\n";
 	}
 
 #if !defined(_WIN32)
@@ -108,7 +109,7 @@ namespace
 #endif
 	}
 
-	void emit_highlight(uint32_t ticks, const std::vector<HighlightPosition>& positions)
+	void emit_highlight(uint32_t ticks, const std::vector<HighlightPosition> &positions)
 	{
 		std::cout << "{\"type\":\"highlight\",\"ticks\":" << ticks << ",\"positions\":[";
 		for (size_t i = 0; i < positions.size(); ++i)
@@ -117,12 +118,13 @@ namespace
 				std::cout << ',';
 			std::cout << "{\"line\":" << positions[i].line << ",\"col\":" << positions[i].col << "}";
 		}
-		std::cout << "]}\n" << std::flush;
+		std::cout << "]}\n"
+							<< std::flush;
 	}
 
 }
 
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
 	if (argc < 2)
 	{
@@ -148,6 +150,46 @@ int main(int argc, char** argv)
 	}
 
 	std::string file = argv[2];
+
+	if (cmd == "check")
+	{
+		bool use_stdin = (file == "--stdin" || file == "-");
+		if (use_stdin)
+		{
+			std::string display_path;
+			for (int i = 3; i < argc; ++i)
+			{
+				std::string arg = argv[i];
+				if (arg == "--path" && i + 1 < argc)
+					display_path = argv[++i];
+			}
+			std::ostringstream buffer;
+			buffer << std::cin.rdbuf();
+			std::string input = buffer.str();
+			std::string base_dir = std::filesystem::current_path().string();
+			std::string display_name = "<stdin>";
+			if (!display_path.empty())
+			{
+				std::filesystem::path display_fs = std::filesystem::absolute(display_path);
+				base_dir = display_fs.parent_path().string();
+				display_name = display_fs.string();
+			}
+			auto compile = compile_mml_text(input, base_dir, display_name);
+			if (!compile.song)
+			{
+				std::cerr << compile.error << std::endl;
+				return 1;
+			}
+			return 0;
+		}
+		auto compile = compile_mml_file(file);
+		if (!compile.song)
+		{
+			std::cerr << compile.error << std::endl;
+			return 1;
+		}
+		return 0;
+	}
 
 	if (cmd == "export")
 	{
@@ -196,7 +238,7 @@ int main(int argc, char** argv)
 		auto compile = compile_mml_file(file);
 		if (!compile.song)
 		{
-			std::cerr << compile.error << "\n";
+			std::cerr << compile.error << std::endl;
 			return 1;
 		}
 

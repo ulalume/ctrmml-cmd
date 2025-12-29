@@ -9,7 +9,7 @@
 
 namespace
 {
-	std::string tabs_to_spaces(const std::string& str)
+	std::string tabs_to_spaces(const std::string &str)
 	{
 		const unsigned int tabstop = 4;
 		std::string out;
@@ -20,8 +20,7 @@ namespace
 				do
 				{
 					out.push_back(' ');
-				}
-				while (out.size() % tabstop != 0);
+				} while (out.size() % tabstop != 0);
 			}
 			else
 			{
@@ -31,7 +30,24 @@ namespace
 		return out;
 	}
 
-	std::string path_with_trailing_sep(const std::filesystem::path& path)
+	std::string format_input_error(InputError &e, const std::string &filename)
+	{
+		auto ref = e.get_reference();
+		std::string message = e.what();
+		if (!message.empty() && message[0] == ':')
+			message = filename + message;
+		if (ref)
+		{
+			std::string caret(ref->get_column(), ' ');
+			caret.push_back('^');
+			const std::string &line = ref->get_line_contents();
+			if (!line.empty())
+				return message + "\n" + line + "\n" + caret;
+		}
+		return message;
+	}
+
+	std::string path_with_trailing_sep(const std::filesystem::path &path)
 	{
 		std::string value = path.string();
 		if (!value.empty())
@@ -44,36 +60,38 @@ namespace
 	}
 }
 
-CompileResult compile_mml_file(const std::string& path)
+CompileResult compile_mml_internal(std::istream &in, const std::string &base_path, const std::string &display_name)
 {
 	CompileResult result{};
 	try
+
 	{
 		auto song = std::make_shared<Song>();
 		auto tracks = std::make_shared<std::map<int, TrackInfo>>();
 
-		std::filesystem::path base = std::filesystem::absolute(path).parent_path();
+		std::filesystem::path base = std::filesystem::absolute(base_path);
 		song->add_tag("include_path", path_with_trailing_sep(base));
-		song->add_tag("include_path", path_with_trailing_sep(base / "pcm"));
 
 		MML_Input input(song.get());
-
-		std::ifstream in(path);
-		if (!in)
-		{
-			result.error = "failed to open file";
-			return result;
-		}
 
 		std::string line;
 		int line_no = 0;
 		while (std::getline(in, line))
+
 		{
 			try
+
 			{
 				input.read_line(tabs_to_spaces(line), line_no);
 			}
-			catch (std::exception& e)
+			catch (InputError &e)
+
+			{
+				result.error = format_input_error(e, display_name);
+				return result;
+			}
+			catch (std::exception &e)
+
 			{
 				result.error = "line " + std::to_string(line_no + 1) + ": " + e.what() + " [" + line + "]";
 				return result;
@@ -82,6 +100,7 @@ CompileResult compile_mml_file(const std::string& path)
 		}
 
 		for (auto it = song->get_track_map().begin(); it != song->get_track_map().end(); ++it)
+
 		{
 			tracks->emplace(it->first, TrackInfoGenerator(*song, it->second));
 		}
@@ -90,18 +109,41 @@ CompileResult compile_mml_file(const std::string& path)
 		result.tracks = tracks;
 		return result;
 	}
-	catch (InputError& e)
+	catch (InputError &e)
+
 	{
-		result.error = e.what();
+		result.error = format_input_error(e, display_name);
 	}
-	catch (std::exception& e)
+	catch (std::exception &e)
+
 	{
 		result.error = e.what();
 	}
 	catch (...)
+
 	{
 		result.error = "unknown exception during compile";
 	}
 
 	return result;
+}
+
+CompileResult compile_mml_file(const std::string &path)
+{
+	std::ifstream in(path);
+	if (!in)
+
+	{
+		CompileResult result{};
+		result.error = "failed to open file";
+		return result;
+	}
+	std::filesystem::path base = std::filesystem::absolute(path).parent_path();
+	return compile_mml_internal(in, base.string(), path);
+}
+
+CompileResult compile_mml_text(const std::string &text, const std::string &base_path, const std::string &display_name)
+{
+	std::istringstream in(text);
+	return compile_mml_internal(in, base_path, display_name);
 }

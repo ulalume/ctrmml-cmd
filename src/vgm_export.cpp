@@ -6,12 +6,12 @@
 
 #include "mml_compile.h"
 
-bool export_vgm(const std::string& in_path, const std::string& out_path)
+bool export_vgm(const std::string &in_path, const std::string &out_path)
 {
 	auto compile = compile_mml_file(in_path);
 	if (!compile.song)
 	{
-		std::cerr << compile.error << "\n";
+		std::cerr << compile.error << std::endl;
 		return false;
 	}
 
@@ -22,6 +22,6 @@ bool export_vgm(const std::string& in_path, const std::string& out_path)
 		std::cerr << "failed to open output file\n";
 		return false;
 	}
-	out.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
+	out.write(reinterpret_cast<const char *>(data.data()), static_cast<std::streamsize>(data.size()));
 	return true;
 }

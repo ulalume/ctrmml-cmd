@@ -17,3 +17,4 @@ struct CompileResult
 };
 
 CompileResult compile_mml_file(const std::string& path);
+CompileResult compile_mml_text(const std::string& text, const std::string& base_path, const std::string& display_name);

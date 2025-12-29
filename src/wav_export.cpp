@@ -23,28 +23,28 @@ namespace
 	const unsigned int kWavChannels = 2;
 	const unsigned int kWavFadeSeconds = 8;
 	const unsigned int kWavLoops = 2;
-	const char* kExtensibleGuidTrailer = "\x00\x00\x00\x00\x10\x00\x80\x00\x00\xAA\x00\x38\x9B\x71";
+	const char *kExtensibleGuidTrailer = "\x00\x00\x00\x00\x10\x00\x80\x00\x00\xAA\x00\x38\x9B\x71";
 
-	void pack_int16le(UINT8* d, INT16 n)
+	void pack_int16le(UINT8 *d, INT16 n)
 	{
 		d[0] = static_cast<UINT8>(static_cast<UINT16>(n));
 		d[1] = static_cast<UINT8>(static_cast<UINT16>(n) >> 8);
 	}
 
-	void pack_uint16le(UINT8* d, UINT16 n)
+	void pack_uint16le(UINT8 *d, UINT16 n)
 	{
 		d[0] = static_cast<UINT8>(n);
 		d[1] = static_cast<UINT8>(n >> 8);
 	}
 
-	void pack_int24le(UINT8* d, INT32 n)
+	void pack_int24le(UINT8 *d, INT32 n)
 	{
 		d[0] = static_cast<UINT8>(n);
 		d[1] = static_cast<UINT8>(n >> 8);
 		d[2] = static_cast<UINT8>(n >> 16);
 	}
 
-	void pack_uint32le(UINT8* d, UINT32 n)
+	void pack_uint32le(UINT8 *d, UINT32 n)
 	{
 		d[0] = static_cast<UINT8>(n);
 		d[1] = static_cast<UINT8>(n >> 8);
@@ -52,7 +52,7 @@ namespace
 		d[3] = static_cast<UINT8>(n >> 24);
 	}
 
-	bool write_wav_header(FILE* f, unsigned int total_frames)
+	bool write_wav_header(FILE *f, unsigned int total_frames)
 	{
 		unsigned int data_size = total_frames * (kWavBitDepth / 8) * kWavChannels;
 		UINT8 tmp[4];
@@ -124,36 +124,36 @@ namespace
 		return true;
 	}
 
-	void frames_to_little_endian(UINT8* data, unsigned int frame_count)
+	void frames_to_little_endian(UINT8 *data, unsigned int frame_count)
 	{
 		for (unsigned int i = 0; i < frame_count; ++i)
 		{
 			if (kWavBitDepth == 16)
 			{
-				pack_int16le(&data[0], *reinterpret_cast<INT16*>(&data[0]));
-				pack_int16le(&data[2], *reinterpret_cast<INT16*>(&data[2]));
+				pack_int16le(&data[0], *reinterpret_cast<INT16 *>(&data[0]));
+				pack_int16le(&data[2], *reinterpret_cast<INT16 *>(&data[2]));
 			}
 			else
 			{
-				pack_int24le(&data[0], *reinterpret_cast<INT32*>(&data[0]) & 0x00FFFFFF);
-				pack_int24le(&data[3], *reinterpret_cast<INT32*>(&data[3]) & 0x00FFFFFF);
+				pack_int24le(&data[0], *reinterpret_cast<INT32 *>(&data[0]) & 0x00FFFFFF);
+				pack_int24le(&data[3], *reinterpret_cast<INT32 *>(&data[3]) & 0x00FFFFFF);
 			}
 			data += ((kWavBitDepth / 8) * kWavChannels);
 		}
 	}
 
-	bool write_frames(FILE* f, unsigned int frame_count, UINT8* data)
+	bool write_frames(FILE *f, unsigned int frame_count, UINT8 *data)
 	{
 		return fwrite(data, (kWavBitDepth / 8) * kWavChannels, frame_count, f) == frame_count;
 	}
 }
 
-bool export_wav(const std::string& in_path, const std::string& out_path)
+bool export_wav(const std::string &in_path, const std::string &out_path)
 {
 	auto compile = compile_mml_file(in_path);
 	if (!compile.song)
 	{
-		std::cerr << compile.error << "";
+		std::cerr << compile.error << std::endl;
 		return false;
 	}
 
@@ -184,15 +184,15 @@ bool export_wav(const std::string& in_path, const std::string& out_path)
 	config.pbSpeed = 1.0;
 	player.SetConfiguration(config);
 
-	FILE* out = fopen(out_path.c_str(), "wb");
+	FILE *out = fopen(out_path.c_str(), "wb");
 	if (!out)
 	{
 		std::cerr << "unable to open output file\n";
 		return false;
 	}
 
-	DATA_LOADER* loader = MemoryLoader_Init(reinterpret_cast<const UINT8*>(data.data()),
-								static_cast<UINT32>(data.size()));
+	DATA_LOADER *loader = MemoryLoader_Init(reinterpret_cast<const UINT8 *>(data.data()),
+																					static_cast<UINT32>(data.size()));
 	if (!loader)
 	{
 		std::cerr << "failed to create memory loader\n";
@@ -217,10 +217,10 @@ bool export_wav(const std::string& in_path, const std::string& out_path)
 		return false;
 	}
 
-	PlayerBase* engine = player.GetPlayer();
+	PlayerBase *engine = player.GetPlayer();
 	if (engine && engine->GetPlayerType() == FCC_VGM)
 	{
-		auto* vgmplayer = dynamic_cast<VGMPlayer*>(engine);
+		auto *vgmplayer = dynamic_cast<VGMPlayer *>(engine);
 		if (vgmplayer)
 			player.SetLoopCount(vgmplayer->GetModifiedLoopCount(kWavLoops));
 	}
