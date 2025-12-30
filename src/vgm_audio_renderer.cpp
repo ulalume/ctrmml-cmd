@@ -140,8 +140,8 @@ void SoundDevice::set_mute_mask(uint32_t mask)
 		dev.devDef->SetMuteMask(dev.dataPtr, mask);
 }
 
-VgmAudioRenderer::VgmAudioRenderer(std::shared_ptr<Song> song, uint32_t start_position)
-		: sample_rate(1), delta_time(0), sample_delta(1), finished(false), song(std::move(song))
+VgmAudioRenderer::VgmAudioRenderer(std::shared_ptr<Song> song, uint32_t start_position, bool log_messages)
+		: sample_rate(1), delta_time(0), sample_delta(1), finished(false), log_messages(log_messages), last_error_message(""), song(std::move(song))
 {
 	driver = this->song->get_platform()->get_driver(1, (VGM_Interface *)this);
 	driver.get()->play_song(*this->song.get());
@@ -237,9 +237,16 @@ bool VgmAudioRenderer::is_finished() const
 	return finished;
 }
 
+const std::string &VgmAudioRenderer::last_error() const
+{
+	return last_error_message;
+}
+
 void VgmAudioRenderer::handle_error(const char *str)
 {
-	printf("Playback error: %s\n", str);
+	last_error_message = str ? str : "";
+	if (log_messages)
+		printf("Playback error: %s\n", str);
 	delta_time = -1000; // Prevent error from recurring
 	finished = true;
 }
@@ -297,29 +304,34 @@ void VgmAudioRenderer::poke32(uint32_t offset, uint32_t data)
 		devices[DEVID_YM2612].set_rate(sample_rate);
 		break;
 	default:
-		printf("EmuPlayerWeb poke %02x = %08x\n", offset, data);
+		if (log_messages)
+			printf("EmuPlayerWeb poke %02x = %08x\n", offset, data);
 		break;
 	}
 }
 
 void VgmAudioRenderer::poke16(uint32_t offset, uint16_t data)
 {
-	printf("EmuPlayerWeb poke %02x = %04x\n", offset, data);
+	if (log_messages)
+		printf("EmuPlayerWeb poke %02x = %04x\n", offset, data);
 }
 
 void VgmAudioRenderer::poke8(uint32_t offset, uint8_t data)
 {
-	printf("EmuPlayerWeb poke %02x = %02x\n", offset, data);
+	if (log_messages)
+		printf("EmuPlayerWeb poke %02x = %02x\n", offset, data);
 }
 
 void VgmAudioRenderer::set_loop()
 {
-	printf("EmuPlayerWeb set loop\n");
+	if (log_messages)
+		printf("EmuPlayerWeb set loop\n");
 }
 
 void VgmAudioRenderer::stop()
 {
-	printf("EmuPlayerWeb stop\n");
+	if (log_messages)
+		printf("EmuPlayerWeb stop\n");
 	finished = true;
 }
 

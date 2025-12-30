@@ -3,6 +3,7 @@
 #include <memory>
 #include <map>
 #include <vector>
+#include <string>
 
 #include <emu/EmuStructs.h>
 #include <emu/SoundEmu.h>
@@ -49,7 +50,7 @@ private:
 class VgmAudioRenderer : private VGM_Interface
 {
 public:
-	VgmAudioRenderer(std::shared_ptr<Song> song, uint32_t start_position = 0);
+	VgmAudioRenderer(std::shared_ptr<Song> song, uint32_t start_position = 0, bool log_messages = true);
 	~VgmAudioRenderer();
 
 	std::shared_ptr<Driver> &get_driver();
@@ -57,6 +58,7 @@ public:
 	int get_sample(WAVE_32BS *output, int count);
 	void stop_playback();
 	bool is_finished() const;
+	const std::string &last_error() const;
 
 private:
 	void handle_error(const char *str);
@@ -95,6 +97,8 @@ private:
 	float delta_time;
 	float sample_delta;
 	bool finished;
+	bool log_messages;
+	std::string last_error_message;
 
 	std::map<int, SoundDevice> devices;
 	std::map<int, std::vector<uint8_t>> datablocks;
