@@ -63,7 +63,8 @@ set(CTRMMML_CMD_LIB_SOURCES
   src/audio_output.cpp
   src/vgm_export.cpp
   src/wav_export.cpp
-  src/ctrmml_cmd.cpp)
+  src/ctrmml_cmd.cpp
+  src/ctrmml_cmd_c_api.cpp)
 
 add_library(ctrmml-cmd-lib STATIC ${CTRMMML_CMD_LIB_SOURCES})
 
