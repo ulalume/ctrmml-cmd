@@ -19,6 +19,24 @@ FetchContent_Declare(
   GIT_TAG 0e349256338144205303a1495ddc788a854be1eb
 )
 
+# Ensure ZLIB is available for libvgm on all platforms.
+FetchContent_Declare(
+  zlib
+  GIT_REPOSITORY https://github.com/madler/zlib
+  GIT_TAG v1.3.1
+)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(ZLIB_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(ZLIB_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(zlib)
+set(ZLIB_INCLUDE_DIR "${zlib_SOURCE_DIR}" CACHE PATH "" FORCE)
+if(WIN32)
+  set(ZLIB_LIBRARY "${zlib_BINARY_DIR}/${CMAKE_CFG_INTDIR}/zlibstatic${CMAKE_STATIC_LIBRARY_SUFFIX}" CACHE FILEPATH "" FORCE)
+else()
+  set(ZLIB_LIBRARY "${zlib_BINARY_DIR}/libz.a" CACHE FILEPATH "" FORCE)
+endif()
+
+
 # libvgm configuration: enable audio + emulation for native playback
 set(BUILD_LIBAUDIO ON CACHE BOOL "" FORCE)
 set(BUILD_LIBEMU ON CACHE BOOL "" FORCE)
