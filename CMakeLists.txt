@@ -56,36 +56,45 @@ foreach(tgt mmlc mdslink)
   endif()
 endforeach()
 
-add_executable(ctrmml-cmd
-  src/main.cpp
+set(CTRMMML_CMD_LIB_SOURCES
   src/highlight_tracker.cpp
   src/mml_compile.cpp
   src/vgm_audio_renderer.cpp
   src/audio_output.cpp
   src/vgm_export.cpp
-  src/wav_export.cpp)
+  src/wav_export.cpp
+  src/ctrmml_cmd.cpp)
 
-target_include_directories(ctrmml-cmd PRIVATE
+add_library(ctrmml-cmd-lib STATIC ${CTRMMML_CMD_LIB_SOURCES})
+
+target_include_directories(ctrmml-cmd-lib PUBLIC
   src
-  ${ctrmml_SOURCE_DIR}/src
+  ${ctrmml_SOURCE_DIR}/src)
+
+target_include_directories(ctrmml-cmd-lib PRIVATE
   ${libvgm_SOURCE_DIR}
   ${libvgm_SOURCE_DIR}/audio
   ${libvgm_SOURCE_DIR}/emu
   ${libvgm_SOURCE_DIR}/utils
   ${libvgm_SOURCE_DIR}/player)
 
-target_link_libraries(ctrmml-cmd PRIVATE
+target_link_libraries(ctrmml-cmd-lib PRIVATE
   ctrmml
   vgm-utils
   vgm-audio
   vgm-emu
   vgm-player)
 
-target_compile_definitions(ctrmml-cmd PRIVATE -DLOCAL_LIBVGM)
+target_compile_definitions(ctrmml-cmd-lib PRIVATE -DLOCAL_LIBVGM)
 
 if(MSVC)
-  target_compile_options(ctrmml-cmd PRIVATE /FIstring)
+  target_compile_options(ctrmml-cmd-lib PRIVATE /FIstring)
 endif()
+
+add_executable(ctrmml-cmd
+  src/main.cpp)
+
+target_link_libraries(ctrmml-cmd PRIVATE ctrmml-cmd-lib)
 
 if(WIN32)
   target_link_libraries(ctrmml-cmd PRIVATE winmm ole32 dsound uuid)
