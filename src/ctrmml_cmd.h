@@ -6,15 +6,16 @@
 
 namespace ctrmml_cmd
 {
-	struct CheckMessage
-	{
-		std::string message;
-		std::string path;
-		uint32_t line = 0;
-		uint32_t col = 0;
-		std::string code;
-		std::string raw;
-	};
+struct CheckMessage
+{
+	std::string message;
+	std::string path;
+	uint32_t line = 0;
+	uint32_t col = 0;
+	uint32_t length = 0;
+	std::string code;
+	std::string raw;
+};
 
 	struct CheckReport
 	{

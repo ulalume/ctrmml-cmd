@@ -42,10 +42,10 @@ JSON lines to stdout:
 {
   "ok": false,
   "errors": [
-    { "message": "missing pcm sample: mypcm/909-2.wav", "path": "song.mml", "line": 1, "col": 11, "code": "pcm_missing" }
+    { "message": "missing pcm sample: mypcm/909-2.wav", "path": "song.mml", "line": 1, "col": 11, "length": 14, "code": "pcm_missing" }
   ],
   "warnings": [
-    { "message": "slur may not affect articulation of previous note", "path": "song.mml", "line": 2, "col": 6, "code": "parse_warning" }
+    { "message": "slur may not affect articulation of previous note", "path": "song.mml", "line": 2, "col": 6, "length": 0, "code": "parse_warning" }
   ]
 }
 ```

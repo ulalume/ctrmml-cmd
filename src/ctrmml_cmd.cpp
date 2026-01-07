@@ -112,12 +112,13 @@ namespace
 		return std::string();
 	}
 
-	struct MissingSample
-	{
-		uint32_t line;
-		uint32_t col;
-		std::string path;
-	};
+struct MissingSample
+{
+	uint32_t line;
+	uint32_t col;
+	uint32_t length;
+	std::string path;
+};
 
 	bool is_word_char(char c)
 	{
@@ -170,6 +171,7 @@ namespace
 					out.push_back(MissingSample{
 							line_number,
 							static_cast<uint32_t>(quote_start + 2),
+							static_cast<uint32_t>(sample_path.size()),
 							sample_path,
 					});
 				}
@@ -246,7 +248,9 @@ namespace
 		return msg;
 	}
 
-	std::vector<ctrmml_cmd::CheckMessage> parse_warnings(const std::string &captured)
+	std::vector<ctrmml_cmd::CheckMessage> parse_warnings(
+			const std::string &captured,
+			const std::string &fallback_path)
 	{
 		std::vector<ctrmml_cmd::CheckMessage> warnings;
 		std::istringstream stream(captured);
@@ -261,11 +265,25 @@ namespace
 			}
 			if (line.empty())
 				continue;
+			std::string path;
+			uint32_t line_no = 0;
+			uint32_t col = 0;
+			std::string message;
+			if (parse_location_line(line, path, line_no, col, message))
+			{
+				ctrmml_cmd::CheckMessage warning{};
+				warning.code = "parse_warning";
+				warning.message = message;
+				warning.path = path.empty() ? fallback_path : path;
+				warning.line = line_no;
+				warning.col = col;
+				warnings.push_back(warning);
+				skip_next = true;
+				continue;
+			}
 			auto warning = make_message_from_line(line, "parse_warning");
 			if (!warning.message.empty())
 				warnings.push_back(warning);
-			if (!warning.path.empty())
-				skip_next = true;
 		}
 		return warnings;
 	}
@@ -292,6 +310,7 @@ namespace
 		msg.path = display_name;
 		msg.line = sample.line;
 		msg.col = sample.col;
+		msg.length = sample.length;
 		msg.message = std::string("missing pcm sample: ") + sample.path;
 		msg.raw = format_message_line(msg);
 		return msg;
@@ -315,7 +334,7 @@ namespace
 		{
 			StderrCapture capture;
 			compile = compile_fn();
-			warnings = parse_warnings(capture.str());
+			warnings = parse_warnings(capture.str(), display_name);
 		}
 		report.warnings.insert(report.warnings.end(), warnings.begin(), warnings.end());
 
@@ -391,6 +410,8 @@ namespace
 			out += std::to_string(messages[i].line);
 			out += ",\"col\":";
 			out += std::to_string(messages[i].col);
+			out += ",\"length\":";
+			out += std::to_string(messages[i].length);
 			out += ",\"code\":";
 			append_json_string(out, messages[i].code);
 			out.push_back('}');
