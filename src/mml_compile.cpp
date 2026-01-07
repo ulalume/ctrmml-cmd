@@ -82,6 +82,8 @@ CompileResult compile_mml_internal(std::istream &in, const std::string &base_pat
 			try
 
 			{
+				if (!line.empty() && line.back() == '\r')
+					line.pop_back();
 				input.read_line(tabs_to_spaces(line), line_no);
 			}
 			catch (InputError &e)
