@@ -283,6 +283,59 @@ namespace
 		return msg.message;
 	}
 
+	ctrmml_cmd::CheckMessage make_missing_pcm_message(
+			const std::string &display_name,
+			const MissingSample &sample)
+	{
+		ctrmml_cmd::CheckMessage msg{};
+		msg.code = "pcm_missing";
+		msg.path = display_name;
+		msg.line = sample.line;
+		msg.col = sample.col;
+		msg.message = std::string("missing pcm sample: ") + sample.path;
+		msg.raw = format_message_line(msg);
+		return msg;
+	}
+
+	template <typename CompileFn>
+	ctrmml_cmd::CheckReport build_check_report(
+			const std::string &text,
+			const std::filesystem::path &base_dir,
+			const std::string &display_name,
+			CompileFn compile_fn)
+	{
+		ctrmml_cmd::CheckReport report{};
+		auto missing = find_missing_pcm_samples(text, base_dir);
+		for (const auto &sample : missing)
+			report.errors.push_back(make_missing_pcm_message(display_name, sample));
+
+		StdoutSilencer stdout_silencer;
+		CompileResult compile{};
+		std::vector<ctrmml_cmd::CheckMessage> warnings;
+		{
+			StderrCapture capture;
+			compile = compile_fn();
+			warnings = parse_warnings(capture.str());
+		}
+		report.warnings.insert(report.warnings.end(), warnings.begin(), warnings.end());
+
+		if (!compile.song)
+		{
+			if (!compile.error.empty())
+				report.errors.push_back(make_message_from_raw(compile.error, "parse_error", false));
+			return report;
+		}
+
+		if (report.errors.empty())
+		{
+			auto playback_error = preflight_playback_error(compile.song);
+			if (!playback_error.empty())
+				report.errors.push_back(make_message_from_raw(playback_error, "playback_error", true));
+		}
+
+		return report;
+	}
+
 	void append_json_string(std::string &out, const std::string &value)
 	{
 		out.push_back('"');
@@ -344,6 +397,13 @@ namespace
 		}
 		out.push_back(']');
 	}
+
+	ctrmml_cmd::CheckResult to_check_result(const ctrmml_cmd::CheckReport &report)
+	{
+		if (report.ok())
+			return {true, std::string()};
+		return {false, format_message_line(report.errors.front())};
+	}
 }
 
 namespace ctrmml_cmd
@@ -352,94 +412,26 @@ namespace ctrmml_cmd
 																const std::string &base_dir,
 																const std::string &display_name)
 	{
-		CheckReport report{};
-		auto missing = find_missing_pcm_samples(text, base_dir);
-		for (const auto &sample : missing)
-		{
-			CheckMessage msg{};
-			msg.code = "pcm_missing";
-			msg.path = display_name;
-			msg.line = sample.line;
-			msg.col = sample.col;
-			msg.message = std::string("missing pcm sample: ") + sample.path;
-			msg.raw = format_message_line(msg);
-			report.errors.push_back(msg);
-		}
-
-		StdoutSilencer stdout_silencer;
-		CompileResult compile{};
-		std::vector<CheckMessage> warnings;
-		{
-			StderrCapture capture;
-			compile = compile_mml_text(text, base_dir, display_name);
-			warnings = parse_warnings(capture.str());
-		}
-		report.warnings.insert(report.warnings.end(), warnings.begin(), warnings.end());
-
-		if (!compile.song)
-		{
-			if (!compile.error.empty())
-				report.errors.push_back(make_message_from_raw(compile.error, "parse_error", false));
-			return report;
-		}
-
-		if (report.errors.empty())
-		{
-			auto playback_error = preflight_playback_error(compile.song);
-			if (!playback_error.empty())
-				report.errors.push_back(make_message_from_raw(playback_error, "playback_error", true));
-		}
-
-		return report;
+		return build_check_report(
+				text,
+				base_dir,
+				display_name,
+				[&]() { return compile_mml_text(text, base_dir, display_name); });
 	}
 
 	CheckReport check_file_report(const std::string &path)
 	{
-		CheckReport report{};
 		std::filesystem::path file_path = std::filesystem::absolute(path);
 		std::ifstream in(path);
 		std::ostringstream buffer;
 		if (in)
 			buffer << in.rdbuf();
 		std::string input = buffer.str();
-		auto missing = find_missing_pcm_samples(input, file_path.parent_path());
-		for (const auto &sample : missing)
-		{
-			CheckMessage msg{};
-			msg.code = "pcm_missing";
-			msg.path = file_path.string();
-			msg.line = sample.line;
-			msg.col = sample.col;
-			msg.message = std::string("missing pcm sample: ") + sample.path;
-			msg.raw = format_message_line(msg);
-			report.errors.push_back(msg);
-		}
-
-		StdoutSilencer stdout_silencer;
-		CompileResult compile{};
-		std::vector<CheckMessage> warnings;
-		{
-			StderrCapture capture;
-			compile = compile_mml_file(path);
-			warnings = parse_warnings(capture.str());
-		}
-		report.warnings.insert(report.warnings.end(), warnings.begin(), warnings.end());
-
-		if (!compile.song)
-		{
-			if (!compile.error.empty())
-				report.errors.push_back(make_message_from_raw(compile.error, "parse_error", false));
-			return report;
-		}
-
-		if (report.errors.empty())
-		{
-			auto playback_error = preflight_playback_error(compile.song);
-			if (!playback_error.empty())
-				report.errors.push_back(make_message_from_raw(playback_error, "playback_error", true));
-		}
-
-		return report;
+		return build_check_report(
+				input,
+				file_path.parent_path(),
+				file_path.string(),
+				[&]() { return compile_mml_file(path); });
 	}
 
 	std::string check_report_json(const CheckReport &report)
@@ -457,19 +449,13 @@ namespace ctrmml_cmd
 
 	CheckResult check_file(const std::string &path)
 	{
-		auto report = check_file_report(path);
-		if (report.ok())
-			return {true, std::string()};
-		return {false, format_message_line(report.errors.front())};
+		return to_check_result(check_file_report(path));
 	}
 
 	CheckResult check_text(const std::string &text,
 												 const std::string &base_dir,
 												 const std::string &display_name)
 	{
-		auto report = check_text_report(text, base_dir, display_name);
-		if (report.ok())
-			return {true, std::string()};
-		return {false, format_message_line(report.errors.front())};
+		return to_check_result(check_text_report(text, base_dir, display_name));
 	}
 }
