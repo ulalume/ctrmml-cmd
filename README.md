@@ -13,6 +13,8 @@ CLI for ctrmml playback, export, and highlight streaming.
   - `--vgm` or `--wav`
   - `--out <path>` (defaults to same dir/name with .vgm/.wav)
 - `check <path>` or `check --stdin --path <path>`
+  - Options:
+    - `--json` (emit a JSON report with `errors` and `warnings`; can appear before or after the path)
 
 ## Highlight output (when `--follow`)
 
@@ -31,6 +33,29 @@ JSON lines to stdout:
 
 - `line` and `col` are 0-based, matching `InputRef` (`get_line`, `get_column`).
 - Multiple positions represent simultaneous tracks.
+
+## Check JSON output
+
+`ctrmml-cmd check --json <path>` prints a single JSON object to stdout:
+
+```json
+{
+  "ok": false,
+  "errors": [
+    { "message": "missing pcm sample: mypcm/909-2.wav", "path": "song.mml", "line": 1, "col": 11, "code": "pcm_missing" }
+  ],
+  "warnings": [
+    { "message": "slur may not affect articulation of previous note", "path": "song.mml", "line": 2, "col": 6, "code": "parse_warning" }
+  ]
+}
+```
+
+## C API
+
+Public header: `src/ctrmml_cmd_c_api.h`.
+
+- `ctrmml_cmd_check_file_json`
+- `ctrmml_cmd_check_text_json`
 
 ## STDIN mode
 
