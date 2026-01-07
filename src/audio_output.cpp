@@ -10,7 +10,7 @@ namespace
 }
 
 AudioOutput::AudioOutput()
-	: drv(nullptr), renderer(nullptr), running(false)
+		: drv(nullptr), renderer(nullptr), running(false)
 {
 }
 
@@ -19,7 +19,7 @@ AudioOutput::~AudioOutput()
 	stop();
 }
 
-bool AudioOutput::start(VgmAudioRenderer* renderer_in, uint32_t sample_rate)
+bool AudioOutput::start(VgmAudioRenderer *renderer_in, uint32_t sample_rate)
 {
 	if (running)
 		return true;
@@ -35,7 +35,7 @@ bool AudioOutput::start(VgmAudioRenderer* renderer_in, uint32_t sample_rate)
 	UINT32 driver_id = 0xffffffffu;
 	for (UINT32 i = 0; i < driver_count; ++i)
 	{
-		AUDDRV_INFO* info = nullptr;
+		AUDDRV_INFO *info = nullptr;
 		if (Audio_GetDriverInfo(i, &info) != AERR_OK || !info)
 			continue;
 		if (info->drvType == ADRVTYPE_OUT)
@@ -50,7 +50,7 @@ bool AudioOutput::start(VgmAudioRenderer* renderer_in, uint32_t sample_rate)
 	if (AudioDrv_Init(driver_id, &drv) != AERR_OK || !drv)
 		return false;
 
-	AUDIO_OPTS* opts = AudioDrv_GetOptions(drv);
+	AUDIO_OPTS *opts = AudioDrv_GetOptions(drv);
 	if (opts)
 	{
 		opts->sampleRate = sample_rate;
@@ -83,15 +83,15 @@ bool AudioOutput::is_running() const
 	return running;
 }
 
-uint32_t AudioOutput::fill_buffer(void* drvStruct, void* userParam, uint32_t bufSize, void* data)
+uint32_t AudioOutput::fill_buffer(void *drvStruct, void *userParam, uint32_t bufSize, void *data)
 {
-	( void )drvStruct;
+	(void)drvStruct;
 	if (!userParam)
 		return 0;
-	return static_cast<AudioOutput*>(userParam)->fill(bufSize, data);
+	return static_cast<AudioOutput *>(userParam)->fill(bufSize, data);
 }
 
-uint32_t AudioOutput::fill(uint32_t bufSize, void* data)
+uint32_t AudioOutput::fill(uint32_t bufSize, void *data)
 {
 	if (!renderer || !data || bufSize == 0)
 		return 0;
@@ -103,15 +103,19 @@ uint32_t AudioOutput::fill(uint32_t bufSize, void* data)
 	if (written < 0)
 		written = 0;
 
-	int16_t* out = static_cast<int16_t*>(data);
+	int16_t *out = static_cast<int16_t *>(data);
 	for (int i = 0; i < written; ++i)
 	{
 		float l = scratch[i].L * kInvSampleScale;
 		float r = scratch[i].R * kInvSampleScale;
-		if (l > 1.0f) l = 1.0f;
-		if (l < -1.0f) l = -1.0f;
-		if (r > 1.0f) r = 1.0f;
-		if (r < -1.0f) r = -1.0f;
+		if (l > 1.0f)
+			l = 1.0f;
+		if (l < -1.0f)
+			l = -1.0f;
+		if (r > 1.0f)
+			r = 1.0f;
+		if (r < -1.0f)
+			r = -1.0f;
 		out[i * 2 + 0] = static_cast<int16_t>(l * 32767.0f);
 		out[i * 2 + 1] = static_cast<int16_t>(r * 32767.0f);
 	}
