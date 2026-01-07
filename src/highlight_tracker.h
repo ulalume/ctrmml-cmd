@@ -42,7 +42,7 @@ struct TrackInfo
 class TrackInfoGenerator : public Player, public TrackInfo
 {
 public:
-	TrackInfoGenerator(Song& song, Track& track);
+	TrackInfoGenerator(Song &song, Track &track);
 
 private:
 	void write_event() override;
@@ -52,11 +52,11 @@ private:
 };
 
 std::vector<HighlightPosition> collect_highlights(
-	const std::map<int, TrackInfo>& tracks,
-	uint32_t ticks,
-	uint32_t max_entries);
+		const std::map<int, TrackInfo> &tracks,
+		uint32_t ticks,
+		uint32_t max_entries);
 
 uint32_t find_start_ticks(
-	const std::map<int, TrackInfo>& tracks,
-	uint32_t line,
-	uint32_t col);
+		const std::map<int, TrackInfo> &tracks,
+		uint32_t line,
+		uint32_t col);

@@ -4,8 +4,8 @@
 
 #include <unordered_set>
 
-TrackInfoGenerator::TrackInfoGenerator(Song& song, Track& track)
-	: Player(song, track), TrackInfo(), slur_flag(false)
+TrackInfoGenerator::TrackInfoGenerator(Song &song, Track &track)
+		: Player(song, track), TrackInfo(), slur_flag(false)
 {
 	loop_start = -1;
 	loop_length = 0;
@@ -22,7 +22,7 @@ TrackInfoGenerator::TrackInfoGenerator(Song& song, Track& track)
 void TrackInfoGenerator::write_event()
 {
 	if ((event.type == Event::NOTE || event.type == Event::TIE || event.type == Event::REST) &&
-		(on_time || off_time))
+			(on_time || off_time))
 	{
 		ExtEvent ext;
 		ext.note = event.param;
@@ -59,14 +59,14 @@ bool TrackInfoGenerator::loop_hook()
 }
 
 std::vector<HighlightPosition> collect_highlights(
-	const std::map<int, TrackInfo>& tracks,
-	uint32_t ticks,
-	uint32_t max_entries)
+		const std::map<int, TrackInfo> &tracks,
+		uint32_t ticks,
+		uint32_t max_entries)
 {
 	std::unordered_set<uint64_t> uniq;
-	for (const auto& track_pair : tracks)
+	for (const auto &track_pair : tracks)
 	{
-		const auto& info = track_pair.second;
+		const auto &info = track_pair.second;
 		int offset = 0;
 
 		if (ticks > static_cast<uint32_t>(info.length) && info.loop_length)
@@ -76,13 +76,13 @@ std::vector<HighlightPosition> collect_highlights(
 		if (it != info.events.begin())
 		{
 			--it;
-			const auto& ev = it->second;
-			for (const auto& ref : ev.references)
+			const auto &ev = it->second;
+			for (const auto &ref : ev.references)
 			{
 				if (!ref || ref->get_filename().size())
 					continue;
 				uint64_t key = (static_cast<uint64_t>(ref->get_line()) << 32) |
-					static_cast<uint64_t>(ref->get_column());
+											 static_cast<uint64_t>(ref->get_column());
 				uniq.insert(key);
 			}
 		}
@@ -95,8 +95,8 @@ std::vector<HighlightPosition> collect_highlights(
 		if (out.size() >= max_entries)
 			break;
 		HighlightPosition pos{
-			static_cast<uint32_t>(key >> 32),
-			static_cast<uint32_t>(key & 0xffffffffu),
+				static_cast<uint32_t>(key >> 32),
+				static_cast<uint32_t>(key & 0xffffffffu),
 		};
 		out.push_back(pos);
 	}
@@ -104,21 +104,21 @@ std::vector<HighlightPosition> collect_highlights(
 }
 
 uint32_t find_start_ticks(
-	const std::map<int, TrackInfo>& tracks,
-	uint32_t line,
-	uint32_t col)
+		const std::map<int, TrackInfo> &tracks,
+		uint32_t line,
+		uint32_t col)
 {
 	uint32_t best = 0;
 	bool found = false;
 
-	for (const auto& track_pair : tracks)
+	for (const auto &track_pair : tracks)
 	{
-		const auto& info = track_pair.second;
-		for (const auto& event_pair : info.events)
+		const auto &info = track_pair.second;
+		for (const auto &event_pair : info.events)
 		{
 			uint32_t tick = static_cast<uint32_t>(event_pair.first);
-			const auto& ev = event_pair.second;
-			for (const auto& ref : ev.references)
+			const auto &ev = event_pair.second;
+			for (const auto &ref : ev.references)
 			{
 				if (!ref || ref->get_filename().size())
 					continue;
