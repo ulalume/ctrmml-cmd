@@ -55,5 +55,12 @@ cmake --build build
 ## External
 
 This project is used here:
+
 - https://github.com/ulalume/zed-ctrmml
 - https://github.com/ulalume/language-server-ctrmml
+
+## License
+
+GPL v2
+
+Third party licenses: [licenses/THIRD_PARTY_NOTICES.md](licenses/THIRD_PARTY_NOTICES.md)
