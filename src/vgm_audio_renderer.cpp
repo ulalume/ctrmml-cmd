@@ -84,7 +84,7 @@ void SoundDevice::init_ym2612(uint32_t freq)
 {
 	DEV_GEN_CFG dev_cfg;
 
-	dev_cfg.emuCore = 0;
+	dev_cfg.emuCore = FCC_NUKE;
 	dev_cfg.srMode = DEVRI_SRMODE_NATIVE;
 	dev_cfg.flags = 0x00;
 	dev_cfg.clock = freq;
