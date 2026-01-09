@@ -16,6 +16,7 @@
 #include "audio_output.h"
 #include "ctrmml_cmd.h"
 #include "highlight_tracker.h"
+#include "mdslink_tool.h"
 #include "mml_compile.h"
 #include "vgm_export.h"
 #include "wav_export.h"
@@ -78,6 +79,7 @@ namespace
 							<< "  ctrmml-cmd play <file> [--start line:col] [--follow]\n"
 							<< "  ctrmml-cmd stop\n"
 							<< "  ctrmml-cmd check [--json] <file>\n"
+							<< "  ctrmml-cmd mdslink [options] <input files...>\n"
 							<< "  ctrmml-cmd export <file> --vgm|--wav [--out path]\n";
 	}
 
@@ -212,6 +214,43 @@ int main(int argc, char **argv)
 		if (!result.ok)
 		{
 			std::cerr << result.error << std::endl;
+			return 1;
+		}
+		return 0;
+	}
+
+	if (cmd == "mdslink")
+	{
+		MdslinkOptions options;
+		for (int i = 2; i < argc; ++i)
+		{
+			std::string arg = argv[i];
+			if ((arg == "-o" || arg == "--output") && i + 2 < argc)
+			{
+				options.seq_output = argv[++i];
+				options.pcm_output = argv[++i];
+			}
+			else if ((arg == "-h" || arg == "--c-header") && i + 1 < argc)
+			{
+				options.c_header_output = argv[++i];
+			}
+			else if ((arg == "-i" || arg == "--asm-header") && i + 1 < argc)
+			{
+				options.asm_header_output = argv[++i];
+			}
+			else
+			{
+				options.inputs.push_back(arg);
+			}
+		}
+
+		auto result = run_mdslink(options);
+		if (!result.ok)
+		{
+			if (!result.error.empty())
+				std::cerr << result.error << std::endl;
+			else
+				std::cerr << "mdslink failed" << std::endl;
 			return 1;
 		}
 		return 0;

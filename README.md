@@ -12,6 +12,13 @@ CLI for ctrmml playback, export, and highlight streaming.
 - `export <path>` or `export --stdin --path <path>`
   - `--vgm` or `--wav`
   - `--out <path>` (defaults to same dir/name with .vgm/.wav)
+- `mdslink [options] <input files...>`
+  - Options:
+    - `-o <mdsseq.bin> <mdspcm.bin>` or `--output <mdsseq.bin> <mdspcm.bin>`
+    - `-i <mdsseq.inc>` or `--asm-header <mdsseq.inc>`
+    - `-h <mdsseq.h>` or `--c-header <mdsseq.h>`
+  - Inputs can be `.mml` or `.mds`
+  - Outputs default to `mdsseq.bin` and `mdspcm.bin` in the current working directory
 - `check <path>` or `check --stdin --path <path>`
   - Options:
     - `--json` (emit a JSON report with `errors` and `warnings`; can appear before or after the path)

@@ -59,6 +59,7 @@ endforeach()
 set(CTRMML_CMD_LIB_SOURCES
   src/highlight_tracker.cpp
   src/mml_compile.cpp
+  src/mdslink_tool.cpp
   src/vgm_audio_renderer.cpp
   src/audio_output.cpp
   src/vgm_export.cpp
