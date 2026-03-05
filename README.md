@@ -19,6 +19,12 @@ CLI for ctrmml playback, export, and highlight streaming.
     - `-h <mdsseq.h>` or `--c-header <mdsseq.h>`
   - Inputs can be `.mml` or `.mds`
   - Outputs default to `mdsseq.bin` and `mdspcm.bin` in the current working directory
+- `quickrom [--out <rom.bin>] <input files...>`
+  - Generates `mdsseq/mdspcm` from the given `.mml/.mds` inputs and patches them into a template ROM.
+  - Uses template ROM data embedded in the `ctrmml-cmd` executable.
+  - Template ROM must contain the marker `CTRMROM0` with embedded slot metadata.
+  - Slot clear value is fixed to `0`.
+  - Mega Drive header checksum (`0x18E`) is always recalculated from ROM offset `0x200` to end.
 - `check <path>` or `check --stdin --path <path>`
   - Options:
     - `--json` (emit a JSON report with `errors` and `warnings`; can appear before or after the path)
@@ -78,10 +84,19 @@ Use `--stdin --path <path>` when you want to pass MML via stdin. The `--path` va
 ## Build
 
 Builds a native CLI using FetchContent to obtain ctrmml/libvgm.
+`assets/template.bin` is embedded into the executable at build time.
 
 ```sh
 cmake -S . -B build
 cmake --build build
+```
+
+## ROM patch example
+
+```sh
+ctrmml-cmd quickrom \
+  --out song.bin \
+  music/song.mml
 ```
 
 ## External

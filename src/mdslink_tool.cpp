@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <utility>
 #include <vector>
 
 #include "input.h"
@@ -69,8 +70,51 @@ namespace
 
 MdslinkResult run_mdslink(const MdslinkOptions& options)
 {
+	auto build = build_mdslink_payload(options);
+	if (!build.ok)
+		return {false, build.error};
+
+	if (!options.seq_output.empty())
+	{
+		std::cout << "writing " << options.seq_output << " ...\n";
+		auto result = write_binary_file(options.seq_output, build.payload.seq_data);
+		if (!result.ok)
+			return result;
+	}
+	if (!options.pcm_output.empty())
+	{
+		std::cout << "writing " << options.pcm_output << " ...\n";
+		auto result = write_binary_file(options.pcm_output, build.payload.pcm_data);
+		if (!result.ok)
+			return result;
+		std::cout << build.payload.statistics;
+	}
+	if (!options.asm_header_output.empty())
+	{
+		std::cout << "writing " << options.asm_header_output << " ...\n";
+		std::ofstream out(options.asm_header_output);
+		if (!out)
+			return {false, stringf("Couldn't write %s", options.asm_header_output.c_str())};
+		out.write(build.payload.asm_header.data(),
+							static_cast<std::streamsize>(build.payload.asm_header.size()));
+	}
+	if (!options.c_header_output.empty())
+	{
+		std::cout << "writing " << options.c_header_output << " ...\n";
+		std::ofstream out(options.c_header_output);
+		if (!out)
+			return {false, stringf("Couldn't write %s", options.c_header_output.c_str())};
+		out.write(build.payload.c_header.data(),
+							static_cast<std::streamsize>(build.payload.c_header.size()));
+	}
+
+	return {true, ""};
+}
+
+MdslinkBuildResult build_mdslink_payload(const MdslinkOptions& options)
+{
 	if (options.inputs.empty())
-		return {false, "no input specified"};
+		return {false, "no input specified", {}};
 
 	try
 	{
@@ -87,62 +131,34 @@ MdslinkResult run_mdslink(const MdslinkOptions& options)
 			{
 				auto result = load_mds_file(input_path, mds);
 				if (!result.ok)
-					return result;
+					return {false, result.error, {}};
 			}
 			else
 			{
 				auto result = convert_mml_file(input_path, mds);
 				if (!result.ok)
-					return result;
+					return {false, result.error, {}};
 			}
 
 			linker.add_song(mds, file_stem(input_path));
 		}
 
-		if (!options.seq_output.empty())
-		{
-			std::cout << "writing " << options.seq_output << " ...\n";
-			auto bytes = linker.get_seq_data();
-			auto result = write_binary_file(options.seq_output, bytes);
-			if (!result.ok)
-				return result;
-		}
-		if (!options.pcm_output.empty())
-		{
-			std::cout << "writing " << options.pcm_output << " ...\n";
-			auto bytes = linker.get_pcm_data();
-			auto result = write_binary_file(options.pcm_output, bytes);
-			if (!result.ok)
-				return result;
-			std::cout << linker.get_statistics();
-		}
+		MdslinkPayload payload{};
+		payload.seq_data = linker.get_seq_data();
+		payload.pcm_data = linker.get_pcm_data();
+		payload.statistics = linker.get_statistics();
 		if (!options.asm_header_output.empty())
-		{
-			std::cout << "writing " << options.asm_header_output << " ...\n";
-			auto bytes = linker.get_asm_header();
-			std::ofstream out(options.asm_header_output);
-			if (!out)
-				return {false, stringf("Couldn't write %s", options.asm_header_output.c_str())};
-			out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
-		}
+			payload.asm_header = linker.get_asm_header();
 		if (!options.c_header_output.empty())
-		{
-			std::cout << "writing " << options.c_header_output << " ...\n";
-			auto bytes = linker.get_c_header();
-			std::ofstream out(options.c_header_output);
-			if (!out)
-				return {false, stringf("Couldn't write %s", options.c_header_output.c_str())};
-			out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
-		}
-
-		return {true, ""};
+			payload.c_header = linker.get_c_header();
+		return {true, "", std::move(payload)};
 	}
 	catch (InputError& error)
 	{
-		return {false, error.what()};
+		return {false, error.what(), {}};
 	}
 	catch (std::exception& error)
 	{
-		return {false, error.what()};
+		return {false, error.what(), {}};
 	}
 }
