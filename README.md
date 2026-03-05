@@ -21,10 +21,6 @@ CLI for ctrmml playback, export, and highlight streaming.
   - Outputs default to `mdsseq.bin` and `mdspcm.bin` in the current working directory
 - `quickrom [--out <rom.bin>] <input files...>`
   - Generates `mdsseq/mdspcm` from the given `.mml/.mds` inputs and patches them into a template ROM.
-  - Uses template ROM data embedded in the `ctrmml-cmd` executable.
-  - Template ROM must contain the marker `CTRMROM0` with embedded slot metadata.
-  - Slot clear value is fixed to `0`.
-  - Mega Drive header checksum (`0x18E`) is always recalculated from ROM offset `0x200` to end.
 - `check <path>` or `check --stdin --path <path>`
   - Options:
     - `--json` (emit a JSON report with `errors` and `warnings`; can appear before or after the path)
@@ -55,10 +51,24 @@ JSON lines to stdout:
 {
   "ok": false,
   "errors": [
-    { "message": "missing pcm sample: mypcm/909-2.wav", "path": "song.mml", "line": 1, "col": 11, "length": 14, "code": "pcm_missing" }
+    {
+      "message": "missing pcm sample: mypcm/909-2.wav",
+      "path": "song.mml",
+      "line": 1,
+      "col": 11,
+      "length": 14,
+      "code": "pcm_missing"
+    }
   ],
   "warnings": [
-    { "message": "slur may not affect articulation of previous note", "path": "song.mml", "line": 2, "col": 6, "length": 0, "code": "parse_warning" }
+    {
+      "message": "slur may not affect articulation of previous note",
+      "path": "song.mml",
+      "line": 2,
+      "col": 6,
+      "length": 0,
+      "code": "parse_warning"
+    }
   ]
 }
 ```
@@ -89,14 +99,6 @@ Builds a native CLI using FetchContent to obtain ctrmml/libvgm.
 ```sh
 cmake -S . -B build
 cmake --build build
-```
-
-## ROM patch example
-
-```sh
-ctrmml-cmd quickrom \
-  --out song.bin \
-  music/song.mml
 ```
 
 ## External

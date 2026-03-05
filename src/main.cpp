@@ -6,6 +6,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <optional>
 #include <sstream>
@@ -309,10 +310,45 @@ int main(int argc, char **argv)
 
 		std::cout << "wrote " << options.output_rom_path << "\n";
 		std::cout << "slot metadata: CTRMROM0 marker\n";
+		auto format_usage = [](size_t used, uint32_t total) -> std::string
+		{
+			if (total == 0)
+				return "n/a";
+			std::ostringstream stream;
+			stream << std::fixed << std::setprecision(2)
+						 << (100.0 * static_cast<double>(used) / static_cast<double>(total))
+						 << "%";
+			return stream.str();
+		};
 		std::cout << "mdsseq: " << result.seq_size << " bytes / " << result.seq_slot_size
-							<< " (offset 0x" << std::hex << result.seq_offset << std::dec << ")\n";
+							<< " (" << format_usage(result.seq_size, result.seq_slot_size)
+							<< ", offset 0x" << std::hex << result.seq_offset << std::dec << ")\n";
 		std::cout << "mdspcm: " << result.pcm_size << " bytes / " << result.pcm_slot_size
-							<< " (offset 0x" << std::hex << result.pcm_offset << std::dec << ")\n";
+							<< " (" << format_usage(result.pcm_size, result.pcm_slot_size)
+							<< ", offset 0x" << std::hex << result.pcm_offset << std::dec << ")\n";
+		auto format_id_range = [](const char *label, uint16_t min, uint16_t max) -> std::string
+		{
+			std::ostringstream stream;
+			stream << label << ' ';
+			if (min == 0 && max == 0)
+			{
+				stream << "none";
+			}
+			else if (min > max)
+			{
+				stream << "none";
+			}
+			else
+			{
+				stream << min << ".." << max;
+			}
+			return stream.str();
+		};
+		std::cout << "ids: "
+							<< format_id_range("BGM", result.bgm_min, result.bgm_max)
+							<< ", "
+							<< format_id_range("SE", result.se_min, result.se_max)
+							<< "\n";
 		return 0;
 	}
 

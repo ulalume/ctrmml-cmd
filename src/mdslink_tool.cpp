@@ -147,10 +147,8 @@ MdslinkBuildResult build_mdslink_payload(const MdslinkOptions& options)
 		payload.seq_data = linker.get_seq_data();
 		payload.pcm_data = linker.get_pcm_data();
 		payload.statistics = linker.get_statistics();
-		if (!options.asm_header_output.empty())
-			payload.asm_header = linker.get_asm_header();
-		if (!options.c_header_output.empty())
-			payload.c_header = linker.get_c_header();
+		payload.asm_header = linker.get_asm_header();
+		payload.c_header = linker.get_c_header();
 		return {true, "", std::move(payload)};
 	}
 	catch (InputError& error)
