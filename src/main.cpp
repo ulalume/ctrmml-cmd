@@ -6,6 +6,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <optional>
 #include <sstream>
@@ -18,6 +19,8 @@
 #include "highlight_tracker.h"
 #include "mdslink_tool.h"
 #include "mml_compile.h"
+#include "rom_builder.h"
+#include "template_rom_data.h"
 #include "vgm_export.h"
 #include "wav_export.h"
 #include "vgm_audio_renderer.h"
@@ -80,6 +83,7 @@ namespace
 							<< "  ctrmml-cmd stop\n"
 							<< "  ctrmml-cmd check [--json] <file>\n"
 							<< "  ctrmml-cmd mdslink [options] <input files...>\n"
+							<< "  ctrmml-cmd quickrom [--out rom.bin] <input files...>\n"
 							<< "  ctrmml-cmd export <file> --vgm|--wav [--out path]\n";
 	}
 
@@ -253,6 +257,98 @@ int main(int argc, char **argv)
 				std::cerr << "mdslink failed" << std::endl;
 			return 1;
 		}
+		return 0;
+	}
+
+	if (cmd == "quickrom")
+	{
+		RomBuildOptions options;
+		options.template_rom_bytes.assign(
+				ctrmml_embedded::kTemplateRomData,
+				ctrmml_embedded::kTemplateRomData + ctrmml_embedded::kTemplateRomSize);
+
+		for (int i = 2; i < argc; ++i)
+		{
+			std::string arg = argv[i];
+			if (arg == "--out" && i + 1 < argc)
+			{
+				options.output_rom_path = argv[++i];
+			}
+			else if (!arg.empty() && arg[0] == '-')
+			{
+				std::cerr << "unknown option: " << arg << "\n";
+				return 1;
+			}
+			else
+			{
+				options.mdslink.inputs.push_back(arg);
+			}
+		}
+
+		if (options.mdslink.inputs.empty())
+		{
+			print_usage();
+			return 1;
+		}
+
+		if (options.output_rom_path.empty())
+		{
+			auto input_path = std::filesystem::path(options.mdslink.inputs.front());
+			auto stem = input_path.stem().string();
+			if (stem.empty())
+				stem = "song";
+			options.output_rom_path =
+					(std::filesystem::current_path() / (stem + ".bin")).string();
+		}
+
+		auto result = run_rom_build(options);
+		if (!result.ok)
+		{
+			std::cerr << result.error << std::endl;
+			return 1;
+		}
+
+		std::cout << "wrote " << options.output_rom_path << "\n";
+		std::cout << "slot metadata: CTRMROM0 marker\n";
+		auto format_usage = [](size_t used, uint32_t total) -> std::string
+		{
+			if (total == 0)
+				return "n/a";
+			std::ostringstream stream;
+			stream << std::fixed << std::setprecision(2)
+						 << (100.0 * static_cast<double>(used) / static_cast<double>(total))
+						 << "%";
+			return stream.str();
+		};
+		std::cout << "mdsseq: " << result.seq_size << " bytes / " << result.seq_slot_size
+							<< " (" << format_usage(result.seq_size, result.seq_slot_size)
+							<< ", offset 0x" << std::hex << result.seq_offset << std::dec << ")\n";
+		std::cout << "mdspcm: " << result.pcm_size << " bytes / " << result.pcm_slot_size
+							<< " (" << format_usage(result.pcm_size, result.pcm_slot_size)
+							<< ", offset 0x" << std::hex << result.pcm_offset << std::dec << ")\n";
+		auto format_id_range = [](const char *label, uint16_t min, uint16_t max) -> std::string
+		{
+			std::ostringstream stream;
+			stream << label << ' ';
+			if (min == 0 && max == 0)
+			{
+				stream << "none";
+			}
+			else if (min > max)
+			{
+				stream << "none";
+			}
+			else
+			{
+				stream << min << ".." << max;
+			}
+			return stream.str();
+		};
+		std::cout << "ids: "
+							<< format_id_range("BGM", result.bgm_min, result.bgm_max)
+							<< ", "
+							<< format_id_range("SE", result.se_min, result.se_max)
+							<< "\n";
 		return 0;
 	}
 

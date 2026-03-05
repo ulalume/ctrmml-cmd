@@ -19,6 +19,8 @@ CLI for ctrmml playback, export, and highlight streaming.
     - `-h <mdsseq.h>` or `--c-header <mdsseq.h>`
   - Inputs can be `.mml` or `.mds`
   - Outputs default to `mdsseq.bin` and `mdspcm.bin` in the current working directory
+- `quickrom [--out <rom.bin>] <input files...>`
+  - Generates `mdsseq/mdspcm` from the given `.mml/.mds` inputs and patches them into a template ROM.
 - `check <path>` or `check --stdin --path <path>`
   - Options:
     - `--json` (emit a JSON report with `errors` and `warnings`; can appear before or after the path)
@@ -49,10 +51,24 @@ JSON lines to stdout:
 {
   "ok": false,
   "errors": [
-    { "message": "missing pcm sample: mypcm/909-2.wav", "path": "song.mml", "line": 1, "col": 11, "length": 14, "code": "pcm_missing" }
+    {
+      "message": "missing pcm sample: mypcm/909-2.wav",
+      "path": "song.mml",
+      "line": 1,
+      "col": 11,
+      "length": 14,
+      "code": "pcm_missing"
+    }
   ],
   "warnings": [
-    { "message": "slur may not affect articulation of previous note", "path": "song.mml", "line": 2, "col": 6, "length": 0, "code": "parse_warning" }
+    {
+      "message": "slur may not affect articulation of previous note",
+      "path": "song.mml",
+      "line": 2,
+      "col": 6,
+      "length": 0,
+      "code": "parse_warning"
+    }
   ]
 }
 ```
@@ -78,6 +94,7 @@ Use `--stdin --path <path>` when you want to pass MML via stdin. The `--path` va
 ## Build
 
 Builds a native CLI using FetchContent to obtain ctrmml/libvgm.
+`assets/template.bin` is embedded into the executable at build time.
 
 ```sh
 cmake -S . -B build
