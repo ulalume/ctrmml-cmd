@@ -27,6 +27,10 @@ struct RomBuildResult
 	uint32_t seq_slot_size = 0;
 	uint32_t pcm_slot_size = 0;
 	bool used_template_marker = false;
+	uint16_t bgm_min = 0;
+	uint16_t bgm_max = 0;
+	uint16_t se_min = 0;
+	uint16_t se_max = 0;
 };
 
 RomBuildResult run_rom_build(const RomBuildOptions &options);
