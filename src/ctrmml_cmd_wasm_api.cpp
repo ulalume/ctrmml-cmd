@@ -250,17 +250,26 @@ extern "C" int ctrmml_cmd_wasm_export_wav(const char *text,
 	return 0;
 }
 
-extern "C" int ctrmml_cmd_wasm_quickrom(const char *input_path,
+extern "C" int ctrmml_cmd_wasm_quickrom(const char **input_paths,
+																				int count,
 																				const char *out_path)
 {
-	if (!input_path || !out_path)
+	if (!input_paths || count <= 0 || !out_path)
 	{
 		set_error("invalid input");
 		return 1;
 	}
 
 	MdslinkOptions mds_opts;
-	mds_opts.inputs.push_back(input_path);
+	for (int i = 0; i < count; ++i)
+	{
+		if (!input_paths[i])
+		{
+			set_error("null input path");
+			return 1;
+		}
+		mds_opts.inputs.push_back(input_paths[i]);
+	}
 
 	RomBuildOptions rom_opts;
 	rom_opts.mdslink = mds_opts;
@@ -278,18 +287,27 @@ extern "C" int ctrmml_cmd_wasm_quickrom(const char *input_path,
 	return 0;
 }
 
-extern "C" int ctrmml_cmd_wasm_mdslink(const char *input_path,
+extern "C" int ctrmml_cmd_wasm_mdslink(const char **input_paths,
+																			 int count,
 																			 const char *seq_out,
 																			 const char *pcm_out)
 {
-	if (!input_path || !seq_out || !pcm_out)
+	if (!input_paths || count <= 0 || !seq_out || !pcm_out)
 	{
 		set_error("invalid input");
 		return 1;
 	}
 
 	MdslinkOptions opts;
-	opts.inputs.push_back(input_path);
+	for (int i = 0; i < count; ++i)
+	{
+		if (!input_paths[i])
+		{
+			set_error("null input path");
+			return 1;
+		}
+		opts.inputs.push_back(input_paths[i]);
+	}
 	opts.seq_output = seq_out;
 	opts.pcm_output = pcm_out;
 

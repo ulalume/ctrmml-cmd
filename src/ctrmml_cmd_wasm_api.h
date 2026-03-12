@@ -35,9 +35,11 @@ extern "C"
 	int ctrmml_cmd_wasm_export_wav(const char *text,
 																 const char *base_dir,
 																 const char *out_path);
-	int ctrmml_cmd_wasm_quickrom(const char *input_path,
+	int ctrmml_cmd_wasm_quickrom(const char **input_paths,
+															 int count,
 															 const char *out_path);
-	int ctrmml_cmd_wasm_mdslink(const char *input_path,
+	int ctrmml_cmd_wasm_mdslink(const char **input_paths,
+															int count,
 															const char *seq_out,
 															const char *pcm_out);
 	const char *ctrmml_cmd_wasm_get_last_error();
