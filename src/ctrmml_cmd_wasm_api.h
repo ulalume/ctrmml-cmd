@@ -42,6 +42,9 @@ extern "C"
 															const char *pcm_out);
 	const char *ctrmml_cmd_wasm_get_last_error();
 
+	// Track data (JSON) — visualization
+	const char *ctrmml_cmd_wasm_get_track_data_json();
+
 #ifdef __cplusplus
 }
 #endif

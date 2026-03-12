@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -35,10 +36,29 @@ namespace
 
 	std::string g_last_error;
 	std::string g_check_json_result;
+	std::string g_track_json;
 
 	void set_error(const std::string &msg)
 	{
 		g_last_error = msg;
+	}
+
+	void json_escape(std::ostringstream &os, const char *s)
+	{
+		os << '"';
+		for (; *s; ++s)
+		{
+			switch (*s)
+			{
+			case '"': os << "\\\""; break;
+			case '\\': os << "\\\\"; break;
+			case '\n': os << "\\n"; break;
+			case '\r': os << "\\r"; break;
+			case '\t': os << "\\t"; break;
+			default: os << *s;
+			}
+		}
+		os << '"';
 	}
 }
 
@@ -285,4 +305,60 @@ extern "C" int ctrmml_cmd_wasm_mdslink(const char *input_path,
 extern "C" const char *ctrmml_cmd_wasm_get_last_error()
 {
 	return g_last_error.c_str();
+}
+
+// ---------------------------------------------------------------------------
+// Track data (JSON) — for piano roll / visualization
+// ---------------------------------------------------------------------------
+
+extern "C" const char *ctrmml_cmd_wasm_get_track_data_json()
+{
+	if (!g_compile.song || !g_compile.tracks)
+	{
+		g_track_json = R"({"ppqn":0,"tracks":[]})";
+		return g_track_json.c_str();
+	}
+
+	std::ostringstream os;
+	os << "{\"ppqn\":" << g_compile.song->get_ppqn() << ",\"tracks\":[";
+
+	bool first_track = true;
+	for (auto &[track_id, info] : *g_compile.tracks)
+	{
+		if (!first_track) os << ',';
+		first_track = false;
+
+		os << "{\"id\":" << track_id
+		   << ",\"length\":" << info.length
+		   << ",\"loop_start\":" << info.loop_start
+		   << ",\"loop_length\":" << info.loop_length
+		   << ",\"events\":[";
+
+		bool first_event = true;
+		for (auto &[tick, ev] : info.events)
+		{
+			if (!first_event) os << ',';
+			first_event = false;
+
+			os << "{\"tick\":" << tick
+			   << ",\"note\":" << ev.note
+			   << ",\"on_time\":" << ev.on_time
+			   << ",\"off_time\":" << ev.off_time
+			   << ",\"instrument\":" << ev.instrument
+			   << ",\"volume\":" << ev.volume
+			   << ",\"transpose\":" << ev.transpose
+			   << ",\"is_tie\":" << (ev.is_tie ? "true" : "false")
+			   << ",\"is_slur\":" << (ev.is_slur ? "true" : "false")
+			   << ",\"coarse_volume\":" << (ev.coarse_volume_flag ? "true" : "false")
+			   << ",\"pitch_envelope\":" << ev.pitch_envelope
+			   << ",\"portamento\":" << ev.portamento
+			   << '}';
+		}
+
+		os << "]}";
+	}
+
+	os << "]}";
+	g_track_json = os.str();
+	return g_track_json.c_str();
 }
