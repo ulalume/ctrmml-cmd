@@ -43,6 +43,21 @@ namespace
 		g_last_error = msg;
 	}
 
+	/** Populate MdslinkOptions.inputs from a char** array. Returns false on null entry. */
+	bool populate_inputs(MdslinkOptions &opts, const char **input_paths, int count)
+	{
+		for (int i = 0; i < count; ++i)
+		{
+			if (!input_paths[i])
+			{
+				set_error("null input path");
+				return false;
+			}
+			opts.inputs.push_back(input_paths[i]);
+		}
+		return true;
+	}
+
 	void json_escape(std::ostringstream &os, const char *s)
 	{
 		os << '"';
@@ -261,15 +276,8 @@ extern "C" int ctrmml_cmd_wasm_quickrom(const char **input_paths,
 	}
 
 	MdslinkOptions mds_opts;
-	for (int i = 0; i < count; ++i)
-	{
-		if (!input_paths[i])
-		{
-			set_error("null input path");
-			return 1;
-		}
-		mds_opts.inputs.push_back(input_paths[i]);
-	}
+	if (!populate_inputs(mds_opts, input_paths, count))
+		return 1;
 
 	RomBuildOptions rom_opts;
 	rom_opts.mdslink = mds_opts;
@@ -299,15 +307,8 @@ extern "C" int ctrmml_cmd_wasm_mdslink(const char **input_paths,
 	}
 
 	MdslinkOptions opts;
-	for (int i = 0; i < count; ++i)
-	{
-		if (!input_paths[i])
-		{
-			set_error("null input path");
-			return 1;
-		}
-		opts.inputs.push_back(input_paths[i]);
-	}
+	if (!populate_inputs(opts, input_paths, count))
+		return 1;
 	opts.seq_output = seq_out;
 	opts.pcm_output = pcm_out;
 
