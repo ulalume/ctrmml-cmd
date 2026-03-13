@@ -154,6 +154,14 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
     OUTPUT_NAME "ctrmml_cmd"
     SUFFIX ".js")
 
+  option(CTRMML_WASM_ASSERTIONS
+    "Enable Emscripten runtime assertions in ctrmml wasm build." OFF)
+  if(CTRMML_WASM_ASSERTIONS)
+    set(_CTRMML_WASM_ASSERTIONS "1")
+  else()
+    set(_CTRMML_WASM_ASSERTIONS "0")
+  endif()
+
   target_link_options(ctrmml-cmd-wasm PRIVATE
     -fexceptions
     "SHELL:-sALLOW_MEMORY_GROWTH=1"
@@ -162,7 +170,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
     "SHELL:-sENVIRONMENT=web"
     "SHELL:-sMODULARIZE=1"
     "SHELL:-sEXPORT_NAME=createCtrmmlModule"
-    "SHELL:-sASSERTIONS=1"
+    "SHELL:-sASSERTIONS=${_CTRMML_WASM_ASSERTIONS}"
     "SHELL:-sSTRICT=1")
 
 else()
