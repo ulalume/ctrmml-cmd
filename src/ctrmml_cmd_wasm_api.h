@@ -20,6 +20,7 @@ extern "C"
 	void ctrmml_cmd_wasm_stop_playback();
 	int ctrmml_cmd_wasm_is_playing();
 	int ctrmml_cmd_wasm_render_audio(float *output, int frames);
+	void ctrmml_cmd_wasm_set_mute_mask(int32_t chip_id, uint32_t mask);
 
 	// Tick tracking + highlights
 	uint32_t ctrmml_cmd_wasm_get_player_ticks();

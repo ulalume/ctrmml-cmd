@@ -158,6 +158,13 @@ std::shared_ptr<Driver> &VgmAudioRenderer::get_driver()
 	return driver;
 }
 
+void VgmAudioRenderer::set_mute_mask(int chip_id, uint32_t mask)
+{
+	auto it = devices.find(chip_id);
+	if (it != devices.end())
+		it->second.set_mute_mask(mask);
+}
+
 void VgmAudioRenderer::setup_stream(uint32_t sample_rate)
 {
 	if (sample_rate == 0)

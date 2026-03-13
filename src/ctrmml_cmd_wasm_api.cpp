@@ -156,6 +156,12 @@ extern "C" int ctrmml_cmd_wasm_start_playback(uint32_t sample_rate,
 	return 0;
 }
 
+extern "C" void ctrmml_cmd_wasm_set_mute_mask(int32_t chip_id, uint32_t mask)
+{
+	if (g_renderer)
+		g_renderer->set_mute_mask(chip_id, mask);
+}
+
 extern "C" void ctrmml_cmd_wasm_stop_playback()
 {
 	if (g_renderer)

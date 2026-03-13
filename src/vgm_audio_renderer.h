@@ -59,6 +59,7 @@ public:
 	void stop_playback();
 	bool is_finished() const;
 	const std::string &last_error() const;
+	void set_mute_mask(int chip_id, uint32_t mask);
 
 private:
 	void handle_error(const char *str);
