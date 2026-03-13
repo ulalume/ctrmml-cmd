@@ -66,6 +66,11 @@ std::vector<HighlightPosition> collect_highlights(
 	std::unordered_set<uint64_t> uniq;
 	for (const auto &track_pair : tracks)
 	{
+		// Subroutine/macro tracks (ID >= 16) have independent tick timelines
+		// and would produce incorrect highlight positions.
+		// Since std::map is sorted, all remaining entries also fail — break.
+		if (track_pair.first >= max_highlight_channels)
+			break;
 		const auto &info = track_pair.second;
 		int offset = 0;
 
@@ -113,6 +118,8 @@ uint32_t find_start_ticks(
 
 	for (const auto &track_pair : tracks)
 	{
+		if (track_pair.first >= max_highlight_channels)
+			break;
 		const auto &info = track_pair.second;
 		for (const auto &event_pair : info.events)
 		{
