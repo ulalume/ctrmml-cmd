@@ -51,12 +51,6 @@ private:
 	bool slur_flag;
 };
 
-// Maximum track ID (exclusive) considered for highlight tracking.
-// Tracks with ID >= this value (subroutines, digit channels, macros)
-// have independent tick timelines and must be excluded.
-// TODO: should be decided based on target platform (same as mmlgui).
-constexpr int max_highlight_channels = 16;
-
 std::vector<HighlightPosition> collect_highlights(
 		const std::map<int, TrackInfo> &tracks,
 		uint32_t ticks,

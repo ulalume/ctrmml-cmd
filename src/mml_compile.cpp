@@ -58,6 +58,17 @@ namespace
 		}
 		return value;
 	}
+
+	// Return the maximum track ID (exclusive) for the song's platform.
+	// Track IDs >= this value are subroutines / macros with independent
+	// tick timelines and must not be included in TrackInfo.
+	// Currently only MDSDRV is supported (16 channels: 6 FM + 4 PSG + 6 aux).
+	// When additional platforms are added, use song.get_platform() to
+	// return the correct value per platform.
+	int get_platform_max_channels(const Song & /*song*/)
+	{
+		return 16;
+	}
 }
 
 CompileResult compile_mml_internal(std::istream &in, const std::string &base_path, const std::string &display_name)
@@ -101,9 +112,12 @@ CompileResult compile_mml_internal(std::istream &in, const std::string &base_pat
 			line_no++;
 		}
 
+		int max_channels = get_platform_max_channels(*song);
 		for (auto it = song->get_track_map().begin(); it != song->get_track_map().end(); ++it)
 
 		{
+			if (it->first >= max_channels)
+				break;
 			tracks->emplace(it->first, TrackInfoGenerator(*song, it->second));
 		}
 
