@@ -83,7 +83,6 @@ namespace
 
 extern "C" int ctrmml_cmd_wasm_compile(const char *text, const char *base_dir)
 {
-	g_renderer.reset();
 	g_last_error.clear();
 
 	if (!text || !base_dir)
