@@ -15,6 +15,7 @@
 #endif
 
 #include "input.h"
+#include "check_supplemental.h"
 #include "mml_compile.h"
 #include "vgm_audio_renderer.h"
 
@@ -110,82 +111,6 @@ namespace
 			return std::string("Playback error: ") + e.what();
 		}
 		return std::string();
-	}
-
-struct MissingSample
-{
-	uint32_t line;
-	uint32_t col;
-	uint32_t length;
-	std::string path;
-};
-
-	bool is_word_char(char c)
-	{
-		return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
-	}
-
-	std::vector<MissingSample> find_missing_pcm_samples(
-			const std::string &text,
-			const std::filesystem::path &base_dir)
-	{
-		std::vector<MissingSample> out;
-		std::istringstream stream(text);
-		std::string line;
-		uint32_t line_number = 1;
-		while (std::getline(stream, line))
-		{
-			std::string_view view(line);
-			auto comment_pos = view.find(';');
-			if (comment_pos != std::string_view::npos)
-				view = view.substr(0, comment_pos);
-
-			size_t search_pos = 0;
-			while (true)
-			{
-				size_t pos = view.find("pcm", search_pos);
-				if (pos == std::string_view::npos)
-					break;
-				bool start_ok = (pos == 0) || !is_word_char(view[pos - 1]);
-				bool end_ok = (pos + 3 >= view.size()) || !is_word_char(view[pos + 3]);
-				search_pos = pos + 3;
-				if (!start_ok || !end_ok)
-					continue;
-				size_t quote_start = view.find('"', pos + 3);
-				if (quote_start == std::string_view::npos)
-					continue;
-				size_t quote_end = view.find('"', quote_start + 1);
-				if (quote_end == std::string_view::npos)
-					continue;
-				std::string sample_path = std::string(view.substr(quote_start + 1, quote_end - quote_start - 1));
-				if (sample_path.empty())
-				{
-					out.push_back(MissingSample{
-							line_number,
-							static_cast<uint32_t>(quote_start + 1),
-							2,
-							sample_path,
-					});
-					search_pos = quote_end + 1;
-					continue;
-				}
-				std::filesystem::path fs_path(sample_path);
-				if (!fs_path.is_absolute())
-					fs_path = base_dir / fs_path;
-				if (!std::filesystem::exists(fs_path))
-				{
-					out.push_back(MissingSample{
-							line_number,
-							static_cast<uint32_t>(quote_start + 2),
-							static_cast<uint32_t>(sample_path.size()),
-							sample_path,
-					});
-				}
-				search_pos = quote_end + 1;
-			}
-			line_number++;
-		}
-		return out;
 	}
 
 	bool parse_location_line(const std::string &line,
@@ -307,24 +232,6 @@ struct MissingSample
 		return msg.message;
 	}
 
-	ctrmml_cmd::CheckMessage make_missing_pcm_message(
-			const std::string &display_name,
-			const MissingSample &sample)
-	{
-		ctrmml_cmd::CheckMessage msg{};
-		msg.code = "pcm_missing";
-		msg.path = display_name;
-		msg.line = sample.line;
-		msg.col = sample.col;
-		msg.length = sample.length;
-		if (sample.path.empty())
-			msg.message = "missing pcm sample";
-		else
-			msg.message = std::string("missing pcm sample: ") + sample.path;
-		msg.raw = format_message_line(msg);
-		return msg;
-	}
-
 	template <typename CompileFn>
 	ctrmml_cmd::CheckReport build_check_report(
 			const std::string &text,
@@ -333,9 +240,6 @@ struct MissingSample
 			CompileFn compile_fn)
 	{
 		ctrmml_cmd::CheckReport report{};
-		auto missing = find_missing_pcm_samples(text, base_dir);
-		for (const auto &sample : missing)
-			report.errors.push_back(make_missing_pcm_message(display_name, sample));
 
 		StdoutSilencer stdout_silencer;
 		CompileResult compile{};
@@ -350,15 +254,58 @@ struct MissingSample
 		if (!compile.song)
 		{
 			if (!compile.error.empty())
-				report.errors.push_back(make_message_from_raw(compile.error, "parse_error", false));
+			{
+				auto message = make_message_from_raw(compile.error, "parse_error", false);
+				if (message.path.empty() || message.line == 0 || message.col == 0)
+				{
+					auto mapped = ctrmml_cmd::SupplementalChecker(text, base_dir)
+																.try_map_locationless_error(display_name, message.message, message.code);
+					if (mapped.has_value())
+					{
+						mapped->raw = format_message_line(*mapped);
+						report.errors.push_back(*mapped);
+					}
+					else
+					{
+						report.errors.push_back(message);
+					}
+				}
+				else
+				{
+					report.errors.push_back(message);
+				}
+			}
 			return report;
 		}
+
+		ctrmml_cmd::SupplementalChecker checker(text, base_dir);
+		auto supplemental_errors = checker.collect_errors(display_name);
+		report.errors.insert(report.errors.end(), supplemental_errors.begin(), supplemental_errors.end());
 
 		if (report.errors.empty())
 		{
 			auto playback_error = preflight_playback_error(compile.song);
 			if (!playback_error.empty())
-				report.errors.push_back(make_message_from_raw(playback_error, "playback_error", true));
+			{
+				auto message = make_message_from_raw(playback_error, "playback_error", true);
+				if (message.path.empty() || message.line == 0 || message.col == 0)
+				{
+					auto mapped = checker.try_map_locationless_error(display_name, message.message, message.code);
+					if (mapped.has_value())
+					{
+						mapped->raw = format_message_line(*mapped);
+						report.errors.push_back(*mapped);
+					}
+					else
+					{
+						report.errors.push_back(message);
+					}
+				}
+				else
+				{
+					report.errors.push_back(message);
+				}
+			}
 		}
 
 		return report;

@@ -93,6 +93,7 @@ foreach(tgt mmlc mdslink)
 endforeach()
 
 set(CTRMML_CMD_CORE_SOURCES
+  src/check_supplemental.cpp
   src/highlight_tracker.cpp
   src/mml_compile.cpp
   src/mdslink_tool.cpp
