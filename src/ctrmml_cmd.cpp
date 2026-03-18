@@ -160,6 +160,12 @@ struct MissingSample
 				std::string sample_path = std::string(view.substr(quote_start + 1, quote_end - quote_start - 1));
 				if (sample_path.empty())
 				{
+					out.push_back(MissingSample{
+							line_number,
+							static_cast<uint32_t>(quote_start + 1),
+							2,
+							sample_path,
+					});
 					search_pos = quote_end + 1;
 					continue;
 				}
@@ -311,7 +317,10 @@ struct MissingSample
 		msg.line = sample.line;
 		msg.col = sample.col;
 		msg.length = sample.length;
-		msg.message = std::string("missing pcm sample: ") + sample.path;
+		if (sample.path.empty())
+			msg.message = "missing pcm sample";
+		else
+			msg.message = std::string("missing pcm sample: ") + sample.path;
 		msg.raw = format_message_line(msg);
 		return msg;
 	}
