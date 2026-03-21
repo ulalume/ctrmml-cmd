@@ -42,7 +42,9 @@ extern "C"
 	int ctrmml_cmd_wasm_mdslink(const char **input_paths,
 															int count,
 															const char *seq_out,
-															const char *pcm_out);
+															const char *pcm_out,
+															const char *c_header_out,
+															const char *asm_header_out);
 	const char *ctrmml_cmd_wasm_get_last_error();
 
 	// Track data (JSON) — visualization

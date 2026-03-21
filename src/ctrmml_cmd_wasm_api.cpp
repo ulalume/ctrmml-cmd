@@ -303,9 +303,11 @@ extern "C" int ctrmml_cmd_wasm_quickrom(const char **input_paths,
 extern "C" int ctrmml_cmd_wasm_mdslink(const char **input_paths,
 																			 int count,
 																			 const char *seq_out,
-																			 const char *pcm_out)
+																			 const char *pcm_out,
+																			 const char *c_header_out,
+																			 const char *asm_header_out)
 {
-	if (!input_paths || count <= 0 || !seq_out || !pcm_out)
+	if (!input_paths || count <= 0 || !seq_out || !pcm_out || !c_header_out || !asm_header_out)
 	{
 		set_error("invalid input");
 		return 1;
@@ -316,6 +318,8 @@ extern "C" int ctrmml_cmd_wasm_mdslink(const char **input_paths,
 		return 1;
 	opts.seq_output = seq_out;
 	opts.pcm_output = pcm_out;
+	opts.c_header_output = c_header_out;
+	opts.asm_header_output = asm_header_out;
 
 	auto result = run_mdslink(opts);
 	if (!result.ok)
