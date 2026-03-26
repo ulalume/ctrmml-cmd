@@ -103,6 +103,98 @@ std::vector<HighlightPosition> collect_highlights(
 	return out;
 }
 
+int32_t find_cursor_tick(
+		const std::map<int, TrackInfo> &tracks,
+		uint32_t line,
+		uint32_t col)
+{
+	struct Candidate
+	{
+		bool found = false;
+		uint32_t line = 0;
+		uint32_t col = 0;
+		uint32_t tick = 0;
+	};
+
+	Candidate same_line_before;
+	Candidate same_line_after;
+	Candidate later_lines;
+	Candidate earlier_lines;
+
+	for (const auto &track_pair : tracks)
+	{
+		const auto &info = track_pair.second;
+		for (const auto &event_pair : info.events)
+		{
+			uint32_t tick = static_cast<uint32_t>(event_pair.first);
+			const auto &ev = event_pair.second;
+			for (const auto &ref : ev.references)
+			{
+				if (!ref || ref->get_filename().size())
+					continue;
+
+				uint32_t ref_line = ref->get_line();
+				uint32_t ref_col = ref->get_column();
+
+				if (ref_line == line && ref_col <= col)
+				{
+					if (!same_line_before.found ||
+							ref_col > same_line_before.col ||
+							(ref_col == same_line_before.col && tick < same_line_before.tick))
+					{
+						same_line_before = {true, ref_line, ref_col, tick};
+					}
+					continue;
+				}
+
+				if (ref_line == line && ref_col > col)
+				{
+					if (!same_line_after.found ||
+							ref_col < same_line_after.col ||
+							(ref_col == same_line_after.col && tick < same_line_after.tick))
+					{
+						same_line_after = {true, ref_line, ref_col, tick};
+					}
+					continue;
+				}
+
+				if (ref_line > line)
+				{
+					if (!later_lines.found ||
+							ref_line < later_lines.line ||
+							(ref_line == later_lines.line && ref_col < later_lines.col) ||
+							(ref_line == later_lines.line && ref_col == later_lines.col &&
+							 tick < later_lines.tick))
+					{
+						later_lines = {true, ref_line, ref_col, tick};
+					}
+					continue;
+				}
+
+				if (!earlier_lines.found ||
+						ref_line > earlier_lines.line ||
+						(ref_line == earlier_lines.line && ref_col > earlier_lines.col) ||
+						(ref_line == earlier_lines.line && ref_col == earlier_lines.col &&
+						 tick < earlier_lines.tick))
+				{
+					earlier_lines = {true, ref_line, ref_col, tick};
+				}
+			}
+		}
+	}
+
+	if (same_line_before.found)
+		return static_cast<int32_t>(same_line_before.tick);
+	if (same_line_after.found)
+		return static_cast<int32_t>(same_line_after.tick);
+	if (later_lines.found)
+		return static_cast<int32_t>(later_lines.tick);
+	if (earlier_lines.found)
+		return static_cast<int32_t>(earlier_lines.tick);
+
+	return -1;
+}
+
 uint32_t find_start_ticks(
 		const std::map<int, TrackInfo> &tracks,
 		uint32_t line,

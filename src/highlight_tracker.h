@@ -56,6 +56,11 @@ std::vector<HighlightPosition> collect_highlights(
 		uint32_t ticks,
 		uint32_t max_entries);
 
+int32_t find_cursor_tick(
+		const std::map<int, TrackInfo> &tracks,
+		uint32_t line,
+		uint32_t col);
+
 uint32_t find_start_ticks(
 		const std::map<int, TrackInfo> &tracks,
 		uint32_t line,

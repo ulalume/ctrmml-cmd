@@ -213,9 +213,9 @@ extern "C" uint32_t ctrmml_cmd_wasm_get_player_ticks()
 }
 
 extern "C" uint32_t ctrmml_cmd_wasm_get_highlights(uint32_t ticks,
-																										uint32_t *lines,
-																										uint32_t *cols,
-																										uint32_t max_entries)
+																											uint32_t *lines,
+																											uint32_t *cols,
+																											uint32_t max_entries)
 {
 	if (!g_compile.tracks || !lines || !cols || max_entries == 0)
 		return 0;
@@ -228,6 +228,13 @@ extern "C" uint32_t ctrmml_cmd_wasm_get_highlights(uint32_t ticks,
 		cols[i] = positions[i].col;
 	}
 	return count;
+}
+
+extern "C" int32_t ctrmml_cmd_wasm_find_cursor_tick(uint32_t line, uint32_t col)
+{
+	if (!g_compile.tracks)
+		return -1;
+	return find_cursor_tick(*g_compile.tracks, line, col);
 }
 
 // ---------------------------------------------------------------------------

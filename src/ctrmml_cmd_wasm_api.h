@@ -28,6 +28,7 @@ extern "C"
 																					uint32_t *lines,
 																					uint32_t *cols,
 																					uint32_t max_entries);
+	int32_t ctrmml_cmd_wasm_find_cursor_tick(uint32_t line, uint32_t col);
 
 	// Export (writes to MEMFS paths, JS reads via FS.readFile)
 	int ctrmml_cmd_wasm_export_vgm(const char *text,
