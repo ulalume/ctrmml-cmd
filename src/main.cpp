@@ -453,8 +453,14 @@ int main(int argc, char **argv)
 		}
 
 		uint32_t start_ticks = 0;
-		if (has_start && compile.tracks)
-			start_ticks = find_start_ticks(*compile.tracks, start_line, start_col);
+		if (has_start && compile.song && compile.lines)
+		{
+			if (start_line > 0)
+				--start_line;
+			if (start_col > 0)
+				--start_col;
+			start_ticks = find_start_ticks(*compile.song, *compile.lines, start_line, start_col);
+		}
 
 		VgmAudioRenderer renderer(compile.song, start_ticks);
 		renderer.setup_stream(44100);

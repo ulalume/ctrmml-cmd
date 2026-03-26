@@ -130,7 +130,7 @@ extern "C" int ctrmml_cmd_wasm_start_playback(uint32_t sample_rate,
 {
 	g_renderer.reset();
 
-	if (!g_compile.song || !g_compile.tracks)
+	if (!g_compile.song || !g_compile.tracks || !g_compile.lines)
 	{
 		set_error("no compiled song");
 		return 1;
@@ -140,7 +140,7 @@ extern "C" int ctrmml_cmd_wasm_start_playback(uint32_t sample_rate,
 	{
 		uint32_t start_ticks = 0;
 		if (start_line > 0 || start_col > 0)
-			start_ticks = find_start_ticks(*g_compile.tracks, start_line, start_col);
+			start_ticks = find_start_ticks(*g_compile.song, *g_compile.lines, start_line, start_col);
 
 		g_renderer = std::make_unique<VgmAudioRenderer>(g_compile.song, start_ticks, false);
 		g_renderer->setup_stream(sample_rate);
@@ -232,9 +232,9 @@ extern "C" uint32_t ctrmml_cmd_wasm_get_highlights(uint32_t ticks,
 
 extern "C" int32_t ctrmml_cmd_wasm_find_cursor_tick(uint32_t line, uint32_t col)
 {
-	if (!g_compile.tracks)
+	if (!g_compile.song || !g_compile.lines)
 		return -1;
-	return find_cursor_tick(*g_compile.tracks, line, col);
+	return find_cursor_tick(*g_compile.song, *g_compile.lines, line, col);
 }
 
 // ---------------------------------------------------------------------------

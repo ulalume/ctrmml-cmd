@@ -9,6 +9,9 @@
 #include "track.h"
 #include "song.h"
 
+using LineTrackPositionMap = std::map<uint16_t, unsigned long>;
+using CompileLineMap = std::map<int, LineTrackPositionMap>;
+
 struct HighlightPosition
 {
 	uint32_t line;
@@ -57,11 +60,19 @@ std::vector<HighlightPosition> collect_highlights(
 		uint32_t max_entries);
 
 int32_t find_cursor_tick(
-		const std::map<int, TrackInfo> &tracks,
+		const Song &song,
+		const CompileLineMap &lines,
+		uint32_t line,
+		uint32_t col);
+
+uint32_t find_line_tick(
+		const Song &song,
+		const CompileLineMap &lines,
 		uint32_t line,
 		uint32_t col);
 
 uint32_t find_start_ticks(
-		const std::map<int, TrackInfo> &tracks,
+		const Song &song,
+		const CompileLineMap &lines,
 		uint32_t line,
 		uint32_t col);

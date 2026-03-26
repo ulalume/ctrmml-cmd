@@ -2,6 +2,8 @@
 
 #include "input.h"
 
+#include <algorithm>
+#include <limits>
 #include <unordered_set>
 
 TrackInfoGenerator::TrackInfoGenerator(Song &song, Track &track)
@@ -103,130 +105,238 @@ std::vector<HighlightPosition> collect_highlights(
 	return out;
 }
 
-int32_t find_cursor_tick(
-		const std::map<int, TrackInfo> &tracks,
-		uint32_t line,
-		uint32_t col)
+namespace
 {
-	struct Candidate
+	constexpr int kMaxChannels = 16;
+
+	struct EditorTickInfo
 	{
-		bool found = false;
-		uint32_t line = 0;
-		uint32_t col = 0;
-		uint32_t tick = 0;
+		uint32_t line_tick = 0;
+		uint32_t cursor_tick = 0;
 	};
 
-	Candidate same_line_before;
-	Candidate same_line_after;
-	Candidate later_lines;
-	Candidate earlier_lines;
-
-	for (const auto &track_pair : tracks)
+	bool is_note_or_jump(Event::Type type)
 	{
-		const auto &info = track_pair.second;
-		for (const auto &event_pair : info.events)
+		return type == Event::NOTE || type == Event::TIE ||
+					 type == Event::REST || type == Event::JUMP;
+	}
+
+	bool is_loop_event(Event::Type type)
+	{
+		return type == Event::LOOP_START || type == Event::LOOP_BREAK ||
+					 type == Event::LOOP_END;
+	}
+
+	uint32_t get_subroutine_length(
+			Song &song,
+			unsigned int param,
+			unsigned int max_recursion);
+
+	uint32_t get_loop_length(
+			Song &song,
+			Track &track,
+			unsigned long position,
+			unsigned int max_recursion)
+	{
+		if (max_recursion == 0)
+			return 0;
+
+		int depth = 0;
+		int count = track.get_event(position).param - 1;
+		int start_time = 0;
+		int end_time = track.get_event(position).play_time;
+		int break_time = 0;
+		while (position-- > 0)
 		{
-			uint32_t tick = static_cast<uint32_t>(event_pair.first);
-			const auto &ev = event_pair.second;
-			for (const auto &ref : ev.references)
+			auto &event = track.get_event(position);
+			start_time = event.play_time;
+			if (event.type == Event::LOOP_END)
 			{
-				if (!ref || ref->get_filename().size())
-					continue;
-
-				uint32_t ref_line = ref->get_line();
-				uint32_t ref_col = ref->get_column();
-
-				if (ref_line == line && ref_col <= col)
-				{
-					if (!same_line_before.found ||
-							ref_col > same_line_before.col ||
-							(ref_col == same_line_before.col && tick < same_line_before.tick))
-					{
-						same_line_before = {true, ref_line, ref_col, tick};
-					}
-					continue;
-				}
-
-				if (ref_line == line && ref_col > col)
-				{
-					if (!same_line_after.found ||
-							ref_col < same_line_after.col ||
-							(ref_col == same_line_after.col && tick < same_line_after.tick))
-					{
-						same_line_after = {true, ref_line, ref_col, tick};
-					}
-					continue;
-				}
-
-				if (ref_line > line)
-				{
-					if (!later_lines.found ||
-							ref_line < later_lines.line ||
-							(ref_line == later_lines.line && ref_col < later_lines.col) ||
-							(ref_line == later_lines.line && ref_col == later_lines.col &&
-							 tick < later_lines.tick))
-					{
-						later_lines = {true, ref_line, ref_col, tick};
-					}
-					continue;
-				}
-
-				if (!earlier_lines.found ||
-						ref_line > earlier_lines.line ||
-						(ref_line == earlier_lines.line && ref_col > earlier_lines.col) ||
-						(ref_line == earlier_lines.line && ref_col == earlier_lines.col &&
-						 tick < earlier_lines.tick))
-				{
-					earlier_lines = {true, ref_line, ref_col, tick};
-				}
+				depth++;
 			}
+			else if (event.type == Event::LOOP_BREAK && !depth)
+			{
+				break_time = end_time - event.play_time;
+			}
+			else if (event.type == Event::LOOP_START)
+			{
+				if (depth)
+					depth--;
+				else
+					break;
+			}
+		}
+		return static_cast<uint32_t>((end_time - start_time) * count - break_time);
+	}
+
+	uint32_t get_subroutine_length(
+			Song &song,
+			unsigned int param,
+			unsigned int max_recursion)
+	{
+		if (max_recursion == 0)
+			return 0;
+
+		try
+		{
+			Track &track = song.get_track(param);
+			auto event_count = track.get_event_count();
+			if (!event_count)
+				return 0;
+
+			auto &event = track.get_event(event_count - 1);
+			uint32_t end_time = event.play_time + event.on_time + event.off_time;
+			if (event.type == Event::JUMP)
+			{
+				end_time = event.play_time +
+									 get_subroutine_length(song, event.param, max_recursion - 1);
+			}
+			else if (event.type == Event::LOOP_END)
+			{
+				end_time = event.play_time +
+									 get_loop_length(song, track, event_count - 1, max_recursion - 1);
+			}
+			return end_time - track.get_event(0).play_time;
+		}
+		catch (std::exception &)
+		{
+			return 0;
 		}
 	}
 
-	if (same_line_before.found)
-		return static_cast<int32_t>(same_line_before.tick);
-	if (same_line_after.found)
-		return static_cast<int32_t>(same_line_after.tick);
-	if (later_lines.found)
-		return static_cast<int32_t>(later_lines.tick);
-	if (earlier_lines.found)
-		return static_cast<int32_t>(earlier_lines.tick);
+	EditorTickInfo find_editor_ticks(
+			Song &song,
+			const CompileLineMap &lines,
+			uint32_t line,
+			uint32_t col)
+	{
+		EditorTickInfo info{};
+		uint32_t song_pos_at_line = std::numeric_limits<uint32_t>::max();
+		uint32_t song_pos_at_cursor = std::numeric_limits<uint32_t>::max();
 
-	return -1;
+		auto line_it = lines.find(static_cast<int>(line));
+		if (line_it == lines.end())
+			return info;
+
+		const auto &line_map = line_it->second;
+		for (const auto &track_pos : line_map)
+		{
+			if (track_pos.first >= kMaxChannels)
+				continue;
+
+			try
+			{
+				Track &track = song.get_track(track_pos.first);
+				unsigned long position = track_pos.second;
+				unsigned long event_count = track.get_event_count();
+				if (!event_count)
+					continue;
+
+				while (position-- > 0)
+				{
+					auto ref = track.get_event(position).reference;
+					if (ref != nullptr)
+					{
+						int ref_line = ref->get_line();
+						int ref_col = ref->get_column();
+						if (ref_line < static_cast<int>(line) ||
+								(ref_line == static_cast<int>(line) &&
+								 ref_col < static_cast<int>(col)))
+						{
+							break;
+						}
+					}
+				}
+
+				bool found_right_of_cursor = false;
+				while (++position < event_count)
+				{
+					auto &event = track.get_event(position);
+					if (is_note_or_jump(event.type))
+					{
+						song_pos_at_cursor = std::min(song_pos_at_cursor, event.play_time);
+						found_right_of_cursor = true;
+						break;
+					}
+					if (is_loop_event(event.type))
+						break;
+				}
+
+				bool passed_line = false;
+				while ((!passed_line || !found_right_of_cursor) && position-- > 0)
+				{
+					auto &event = track.get_event(position);
+					uint32_t length = event.on_time + event.off_time;
+					if (event.type == Event::JUMP)
+					{
+						length = get_subroutine_length(song, event.param, 10);
+					}
+					else if (event.type == Event::LOOP_END)
+					{
+						length = get_loop_length(song, track, position, 10);
+					}
+
+					auto ref = event.reference;
+					if (ref != nullptr)
+					{
+						passed_line = ref->get_line() < static_cast<int>(line);
+						if (!passed_line)
+						{
+							song_pos_at_line = std::min(song_pos_at_line, event.play_time);
+						}
+					}
+
+					if (!found_right_of_cursor && length != 0)
+					{
+						if (is_note_or_jump(event.type) || event.type == Event::LOOP_END)
+						{
+							song_pos_at_cursor =
+									std::min(song_pos_at_cursor, event.play_time + length);
+						}
+					}
+				}
+
+				if (song_pos_at_cursor < song_pos_at_line)
+					song_pos_at_line = song_pos_at_cursor;
+			}
+			catch (std::exception &)
+			{
+				continue;
+			}
+		}
+
+		if (song_pos_at_line != std::numeric_limits<uint32_t>::max())
+			info.line_tick = song_pos_at_line;
+		if (song_pos_at_cursor != std::numeric_limits<uint32_t>::max())
+			info.cursor_tick = song_pos_at_cursor;
+		return info;
+	}
+}
+
+int32_t find_cursor_tick(
+		const Song &song,
+		const CompileLineMap &lines,
+		uint32_t line,
+		uint32_t col)
+{
+	return static_cast<int32_t>(
+			find_editor_ticks(const_cast<Song &>(song), lines, line, col).cursor_tick);
+}
+
+uint32_t find_line_tick(
+		const Song &song,
+		const CompileLineMap &lines,
+		uint32_t line,
+		uint32_t col)
+{
+	return find_editor_ticks(const_cast<Song &>(song), lines, line, col).line_tick;
 }
 
 uint32_t find_start_ticks(
-		const std::map<int, TrackInfo> &tracks,
+		const Song &song,
+		const CompileLineMap &lines,
 		uint32_t line,
 		uint32_t col)
 {
-	uint32_t best = 0;
-	bool found = false;
-
-	for (const auto &track_pair : tracks)
-	{
-		const auto &info = track_pair.second;
-		for (const auto &event_pair : info.events)
-		{
-			uint32_t tick = static_cast<uint32_t>(event_pair.first);
-			const auto &ev = event_pair.second;
-			for (const auto &ref : ev.references)
-			{
-				if (!ref || ref->get_filename().size())
-					continue;
-				uint32_t ref_line = ref->get_line();
-				uint32_t ref_col = ref->get_column();
-				if (ref_line > line || (ref_line == line && ref_col >= col))
-				{
-					if (!found || tick < best)
-					{
-						best = tick;
-						found = true;
-					}
-				}
-			}
-		}
-	}
-
-	return found ? best : 0;
+	return find_editor_ticks(const_cast<Song &>(song), lines, line, col).cursor_tick;
 }

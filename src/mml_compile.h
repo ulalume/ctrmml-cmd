@@ -13,6 +13,7 @@ struct CompileResult
 {
 	std::shared_ptr<Song> song;
 	std::shared_ptr<std::map<int, TrackInfo>> tracks;
+	std::shared_ptr<CompileLineMap> lines;
 	std::string error;
 };
 

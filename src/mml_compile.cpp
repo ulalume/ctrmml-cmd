@@ -79,6 +79,7 @@ CompileResult compile_mml_internal(std::istream &in, const std::string &base_pat
 	{
 		auto song = std::make_shared<Song>();
 		auto tracks = std::make_shared<std::map<int, TrackInfo>>();
+		auto lines = std::make_shared<CompileLineMap>();
 
 		std::filesystem::path base = std::filesystem::absolute(base_path);
 		song->add_tag("include_path", path_with_trailing_sep(base));
@@ -96,6 +97,7 @@ CompileResult compile_mml_internal(std::istream &in, const std::string &base_pat
 				if (!line.empty() && line.back() == '\r')
 					line.pop_back();
 				input.read_line(tabs_to_spaces(line), line_no);
+				lines->insert({line_no, input.get_track_map()});
 			}
 			catch (InputError &e)
 
@@ -123,6 +125,7 @@ CompileResult compile_mml_internal(std::istream &in, const std::string &base_pat
 
 		result.song = song;
 		result.tracks = tracks;
+		result.lines = lines;
 		return result;
 	}
 	catch (InputError &e)
