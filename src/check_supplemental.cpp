@@ -70,6 +70,18 @@ SourceSpan preferred_span(const TagToken *token, const SourceSpan &fallback)
 	return fallback;
 }
 
+SourceSpan preferred_content_span(const TagToken *token, const SourceSpan &fallback)
+{
+	if (token != nullptr)
+	{
+		if (token->span.line != 0 && token->span.col != 0 && token->span.length != 0)
+			return token->span;
+		if (token->outer_span.line != 0 && token->outer_span.col != 0 && token->outer_span.length != 0)
+			return token->outer_span;
+	}
+	return fallback;
+}
+
 std::string decode_quoted(std::string_view raw)
 {
 	std::string out;
@@ -380,7 +392,7 @@ std::vector<CheckMessage> SupplementalChecker::collect_errors(const std::string 
 			{
 				const TagToken *path_token = tag.tokens.size() >= 2 ? &tag.tokens[1] : nullptr;
 				errors.push_back(make_message(display_name,
-																preferred_span(path_token, type_span),
+																preferred_content_span(path_token, type_span),
 																"missing pcm sample",
 																"pcm_missing"));
 				continue;
@@ -395,7 +407,7 @@ std::vector<CheckMessage> SupplementalChecker::collect_errors(const std::string 
 			if (!std::filesystem::exists(sample_path, ec))
 			{
 				errors.push_back(make_message(display_name,
-																preferred_span(&path_token, type_span),
+																preferred_content_span(&path_token, type_span),
 																"missing pcm sample: " + path_token.value,
 																"pcm_missing"));
 				continue;
@@ -460,7 +472,7 @@ std::optional<CheckMessage> SupplementalChecker::try_map_locationless_error(cons
 			{
 				const TagToken *path_token = tag.tokens.size() >= 2 ? &tag.tokens[1] : nullptr;
 				return make_message(display_name,
-														preferred_span(path_token, tag.key_span),
+														preferred_content_span(path_token, tag.key_span),
 														"missing pcm sample",
 														"pcm_missing");
 			}
@@ -482,7 +494,7 @@ std::optional<CheckMessage> SupplementalChecker::try_map_locationless_error(cons
 			if (tag.tokens.size() >= 2 && tag.tokens.front().value == "pcm" && tag.tokens[1].value == path)
 			{
 				return make_message(display_name,
-														preferred_span(&tag.tokens[1], tag.key_span),
+														preferred_content_span(&tag.tokens[1], tag.key_span),
 														"missing pcm sample: " + path,
 														"pcm_missing");
 			}
