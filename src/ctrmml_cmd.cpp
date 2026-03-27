@@ -207,7 +207,8 @@ namespace
 				warning.message = message;
 				warning.path = path.empty() ? fallback_path : path;
 				warning.line = line_no;
-				warning.col = col;
+				// operator<< outputs 0-indexed column; JSON consumers expect 1-indexed
+				warning.col = col + 1;
 				warnings.push_back(warning);
 				skip_next = true;
 				continue;
@@ -236,8 +237,9 @@ namespace
 		if (ref)
 		{
 			out.path = ref->get_filename().empty() ? display_name : ref->get_filename();
-			out.line = ref->get_line();
-			out.col = ref->get_column();
+			// InputRef stores 0-indexed line and 0-indexed column; JSON consumers expect 1-indexed
+			out.line = ref->get_line() + 1;
+			out.col = ref->get_column() + 1;
 		}
 		else
 		{
