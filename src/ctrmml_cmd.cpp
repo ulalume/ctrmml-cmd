@@ -221,7 +221,7 @@ namespace
 	}
 
 	constexpr int kMdsdrvRomNoteMin = 0;
-	constexpr int kMdsdrvRomNoteMax = 93; // o8 a
+	constexpr int kMdsdrvRomNoteExclusiveMax = 94; // SLR - NOTE = 0xe0 - 0x82
 
 	ctrmml_cmd::CheckMessage make_message_from_ref(
 			const std::shared_ptr<InputRef> &ref,
@@ -280,15 +280,15 @@ namespace
 									+ ").",
 							"rom_note_range_warning"));
 				}
-				else if (event.param > kMdsdrvRomNoteMax)
+				else if (event.param >= kMdsdrvRomNoteExclusiveMax)
 				{
 					warnings.push_back(make_message_from_ref(
 							event.reference,
 							display_name,
-							"Above the MDSDRV/ROM melodic range: highest note is o8 a. ROM export will fail ("
+							"Above the MDSDRV/ROM melodic range: ROM export will fail ("
 									+ std::to_string(event.param)
 									+ " > "
-									+ std::to_string(kMdsdrvRomNoteMax)
+									+ std::to_string(kMdsdrvRomNoteExclusiveMax)
 									+ ").",
 							"rom_note_range_warning"));
 				}
