@@ -2,9 +2,11 @@
 
 #include <cctype>
 #include <cstdio>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <set>
 #include <sstream>
 #include <string_view>
 
@@ -253,8 +255,29 @@ namespace
 			const std::string &display_name)
 	{
 		std::vector<ctrmml_cmd::CheckMessage> warnings;
+		std::set<int16_t> drum_subroutine_tracks;
+
 		for (auto &[track_id, track] : song->get_track_map())
 		{
+			(void)track_id;
+			bool drum_mode_enabled = false;
+			for (unsigned long i = 0; i < track.get_event_count(); ++i)
+			{
+				auto &event = track.get_event(i);
+				if (event.type == Event::DRUM_MODE)
+				{
+					drum_mode_enabled = event.param != 0;
+					continue;
+				}
+				if (event.type == Event::NOTE && drum_mode_enabled)
+					drum_subroutine_tracks.insert(event.param);
+			}
+		}
+
+		for (auto &[track_id, track] : song->get_track_map())
+		{
+			if (drum_subroutine_tracks.count(static_cast<int16_t>(track_id)))
+				continue;
 			(void)track_id;
 			bool in_drum_mode = false;
 			for (unsigned long i = 0; i < track.get_event_count(); ++i)
