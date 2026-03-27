@@ -1,3 +1,8 @@
 /target
 /build*
 /out
+/CMakeFiles/
+/_deps/
+/CMakeCache.txt
+/cmake_install.cmake
+/Makefile
