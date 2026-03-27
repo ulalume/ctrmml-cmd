@@ -219,6 +219,82 @@ namespace
 		return warnings;
 	}
 
+	constexpr int kMdsdrvRomNoteMin = 0;
+	constexpr int kMdsdrvRomNoteMax = 93; // o8 a
+
+	ctrmml_cmd::CheckMessage make_message_from_ref(
+			const std::shared_ptr<InputRef> &ref,
+			const std::string &display_name,
+			const std::string &message,
+			const std::string &code,
+			uint32_t length = 1)
+	{
+		ctrmml_cmd::CheckMessage out{};
+		out.message = message;
+		out.code = code;
+		out.length = length;
+		if (ref)
+		{
+			out.path = ref->get_filename().empty() ? display_name : ref->get_filename();
+			out.line = ref->get_line();
+			out.col = ref->get_column();
+		}
+		else
+		{
+			out.path = display_name;
+		}
+		return out;
+	}
+
+	std::vector<ctrmml_cmd::CheckMessage> collect_rom_note_range_warnings(
+			const std::shared_ptr<Song> &song,
+			const std::string &display_name)
+	{
+		std::vector<ctrmml_cmd::CheckMessage> warnings;
+		for (auto &[track_id, track] : song->get_track_map())
+		{
+			(void)track_id;
+			bool in_drum_mode = false;
+			for (unsigned long i = 0; i < track.get_event_count(); ++i)
+			{
+				auto &event = track.get_event(i);
+				if (event.type == Event::DRUM_MODE)
+				{
+					in_drum_mode = event.param != 0;
+					continue;
+				}
+				if (event.type != Event::NOTE || in_drum_mode)
+					continue;
+
+				if (event.param < kMdsdrvRomNoteMin)
+				{
+					warnings.push_back(make_message_from_ref(
+							event.reference,
+							display_name,
+							"Below the MDSDRV/ROM melodic range: lowest useful note is o1 c. Lower notes clamp to o1 c ("
+									+ std::to_string(event.param)
+									+ " < "
+									+ std::to_string(kMdsdrvRomNoteMin)
+									+ ").",
+							"rom_note_range_warning"));
+				}
+				else if (event.param > kMdsdrvRomNoteMax)
+				{
+					warnings.push_back(make_message_from_ref(
+							event.reference,
+							display_name,
+							"Above the MDSDRV/ROM melodic range: highest note is o8 a. ROM export will fail ("
+									+ std::to_string(event.param)
+									+ " > "
+									+ std::to_string(kMdsdrvRomNoteMax)
+									+ ").",
+							"rom_note_range_warning"));
+				}
+			}
+		}
+		return warnings;
+	}
+
 	std::string format_message_line(const ctrmml_cmd::CheckMessage &msg)
 	{
 		if (!msg.raw.empty())
@@ -281,6 +357,8 @@ namespace
 		ctrmml_cmd::SupplementalChecker checker(text, base_dir);
 		auto supplemental_errors = checker.collect_errors(display_name);
 		report.errors.insert(report.errors.end(), supplemental_errors.begin(), supplemental_errors.end());
+		auto range_warnings = collect_rom_note_range_warnings(compile.song, display_name);
+		report.warnings.insert(report.warnings.end(), range_warnings.begin(), range_warnings.end());
 
 		if (report.errors.empty())
 		{
