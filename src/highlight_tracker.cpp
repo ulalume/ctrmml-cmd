@@ -231,6 +231,7 @@ namespace
 				unsigned long event_count = track.get_event_count();
 				if (!event_count)
 					continue;
+				uint32_t track_song_pos_at_cursor = std::numeric_limits<uint32_t>::max();
 
 				while (position-- > 0)
 				{
@@ -254,7 +255,7 @@ namespace
 					auto &event = track.get_event(position);
 					if (is_note_or_jump(event.type))
 					{
-						song_pos_at_cursor = std::min(song_pos_at_cursor, event.play_time);
+						track_song_pos_at_cursor = event.play_time;
 						found_right_of_cursor = true;
 						break;
 					}
@@ -290,14 +291,18 @@ namespace
 					{
 						if (is_note_or_jump(event.type) || event.type == Event::LOOP_END)
 						{
-							song_pos_at_cursor =
-									std::min(song_pos_at_cursor, event.play_time + length);
+							track_song_pos_at_cursor = event.play_time + length;
+							found_right_of_cursor = true;
 						}
 					}
 				}
 
-				if (song_pos_at_cursor < song_pos_at_line)
-					song_pos_at_line = song_pos_at_cursor;
+				if (track_song_pos_at_cursor != std::numeric_limits<uint32_t>::max())
+				{
+					song_pos_at_cursor = std::min(song_pos_at_cursor, track_song_pos_at_cursor);
+					if (track_song_pos_at_cursor < song_pos_at_line)
+						song_pos_at_line = track_song_pos_at_cursor;
+				}
 			}
 			catch (std::exception &)
 			{
