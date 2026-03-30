@@ -54,6 +54,16 @@ extern "C"
 	// Cursor channel info (JSON) — instrument data at cursor position
 	const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, uint32_t col);
 
+	// Preview synth — standalone chip emulator for note preview / MIDI
+	void preview_init(uint32_t sample_rate);
+	void preview_deinit();
+	void preview_load_fm(const uint8_t *data, int len);
+	void preview_load_psg(const uint8_t *data, int len);
+	void preview_set_mode(int mode);
+	void preview_note_on(uint8_t midi_note, uint8_t velocity);
+	void preview_note_off(uint8_t midi_note);
+	void preview_all_notes_off();
+
 #ifdef __cplusplus
 }
 #endif

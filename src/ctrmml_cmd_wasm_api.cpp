@@ -11,6 +11,7 @@
 #include "mdslink_tool.h"
 #include "mml_compile.h"
 #include "platform/mdsdrv.h"
+#include "preview_synth.h"
 #include "rom_builder.h"
 #include "template_rom_data.h"
 #include "vgm_audio_renderer.h"
@@ -35,6 +36,7 @@ namespace
 	CompileResult g_compile;
 	std::unique_ptr<VgmAudioRenderer> g_renderer;
 	std::unique_ptr<MDSDRV_Data> g_instrument_data;
+	std::unique_ptr<PreviewSynth> g_preview;
 
 	std::string g_last_error;
 	std::string g_check_json_result;
@@ -191,13 +193,36 @@ extern "C" int ctrmml_cmd_wasm_is_playing()
 
 extern "C" int ctrmml_cmd_wasm_render_audio(float *output, int frames)
 {
-	if (!g_renderer || !output || frames <= 0)
+	if (!output || frames <= 0)
 		return 0;
 
-	std::vector<WAVE_32BS> scratch(frames);
-	int written = g_renderer->get_sample(scratch.data(), frames);
-	if (written < 0)
-		written = 0;
+	bool has_main = g_renderer && !g_renderer->is_finished();
+	bool has_preview = g_preview && g_preview->is_active();
+
+	if (!has_main && !has_preview)
+		return 0;
+
+	static std::vector<WAVE_32BS> scratch;
+	if (static_cast<int>(scratch.size()) < frames)
+		scratch.resize(frames);
+	int written = 0;
+
+	if (has_main)
+	{
+		written = g_renderer->get_sample(scratch.data(), frames);
+		if (written < 0)
+			written = 0;
+	}
+
+	if (has_preview)
+	{
+		if (written == 0)
+		{
+			std::memset(scratch.data(), 0, frames * sizeof(WAVE_32BS));
+			written = frames;
+		}
+		g_preview->render(scratch.data(), written);
+	}
 
 	for (int i = 0; i < written; ++i)
 	{
@@ -542,6 +567,7 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 
 	uint16_t ins_id = 0;
 	int fm3_flags = -1;
+	int last_note = -1; // last NOTE event param (ctrmml note number)
 	std::vector<uint8_t> effective_data;
 
 	// Collect FM overrides: pairs of (data_index, value/command)
@@ -556,7 +582,11 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 		{
 			Event &event = track.get_event(i);
 
-			if (event.type == Event::INS)
+			if (event.type == Event::NOTE)
+			{
+				last_note = event.param;
+			}
+			else if (event.type == Event::INS)
 			{
 				ins_id = static_cast<uint16_t>(event.param);
 				pending_overrides.clear();
@@ -662,7 +692,62 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 	if (fm3_flags >= 0)
 		os << ",\"fm3_flags\":" << fm3_flags;
 
+	// Octave derived from last note event (note / 12). Default 4 if no notes yet.
+	int octave = (last_note >= 0) ? (last_note / 12) : 4;
+	os << ",\"octave\":" << octave;
+
 	os << '}';
 	g_channel_json = os.str();
 	return g_channel_json.c_str();
+}
+
+// ---------------------------------------------------------------------------
+// Preview synth
+// ---------------------------------------------------------------------------
+
+extern "C" void preview_init(uint32_t sample_rate)
+{
+	g_preview = std::make_unique<PreviewSynth>();
+	g_preview->init(sample_rate);
+}
+
+extern "C" void preview_deinit()
+{
+	g_preview.reset();
+}
+
+extern "C" void preview_load_fm(const uint8_t *data, int len)
+{
+	if (g_preview)
+		g_preview->load_fm(data, len);
+}
+
+extern "C" void preview_load_psg(const uint8_t *data, int len)
+{
+	if (g_preview)
+		g_preview->load_psg(data, len);
+}
+
+extern "C" void preview_set_mode(int mode)
+{
+	if (g_preview)
+		g_preview->set_mode(mode);
+}
+
+extern "C" void preview_note_on(uint8_t midi_note, uint8_t velocity)
+{
+	if (g_preview)
+		g_preview->note_on(midi_note, velocity);
+}
+
+extern "C" void preview_note_off(uint8_t midi_note)
+{
+	if (g_preview)
+		g_preview->note_off(midi_note);
+}
+
+extern "C" void preview_all_notes_off()
+{
+	if (g_preview)
+		g_preview->all_notes_off();
 }
