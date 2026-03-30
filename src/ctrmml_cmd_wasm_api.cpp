@@ -10,6 +10,7 @@
 #include "highlight_tracker.h"
 #include "mdslink_tool.h"
 #include "mml_compile.h"
+#include "platform/mdsdrv.h"
 #include "rom_builder.h"
 #include "template_rom_data.h"
 #include "vgm_audio_renderer.h"
@@ -33,10 +34,12 @@ namespace
 
 	CompileResult g_compile;
 	std::unique_ptr<VgmAudioRenderer> g_renderer;
+	std::unique_ptr<MDSDRV_Data> g_instrument_data;
 
 	std::string g_last_error;
 	std::string g_check_json_result;
 	std::string g_track_json;
+	std::string g_channel_json;
 
 	void set_error(const std::string &msg)
 	{
@@ -95,7 +98,18 @@ extern "C" int ctrmml_cmd_wasm_compile(const char *text, const char *base_dir)
 	if (!g_compile.song)
 	{
 		set_error(g_compile.error);
+		g_instrument_data.reset();
 		return 1;
+	}
+
+	try
+	{
+		g_instrument_data = std::make_unique<MDSDRV_Data>();
+		g_instrument_data->read_song(*g_compile.song);
+	}
+	catch (std::exception &)
+	{
+		g_instrument_data.reset();
 	}
 
 	return 0;
@@ -396,4 +410,259 @@ extern "C" const char *ctrmml_cmd_wasm_get_track_data_json()
 	os << "]}";
 	g_track_json = os.str();
 	return g_track_json.c_str();
+}
+
+// ---------------------------------------------------------------------------
+// Cursor channel info (JSON) — instrument data at cursor position
+// ---------------------------------------------------------------------------
+
+namespace
+{
+	// Map YM2612 register address → FM data_bank byte index.
+	// data_bank physical order: i=0:OP1, i=1:OP3, i=2:OP2, i=3:OP4
+	// Register offsets:  +0=OP1, +4=OP3, +8=OP2, +C=OP4
+	int fm_reg_to_data_index(uint8_t reg)
+	{
+		// Map register low nibble to data_bank slot within a group
+		// 0x*0→0(OP1), 0x*4→1(OP3), 0x*8→2(OP2), 0x*C→3(OP4)
+		static const std::map<uint8_t, int> reg_to_slot = {
+			{0x00, 0}, {0x04, 1}, {0x08, 2}, {0x0c, 3}
+		};
+
+		auto slot_it = reg_to_slot.find(reg & 0x0c);
+
+		// DT/MUL: 0x30..0x3C → data[0..3]
+		if (reg >= 0x30 && reg <= 0x3c && slot_it != reg_to_slot.end())
+			return 0 + slot_it->second;
+		// KS/AR: 0x50..0x5C → data[4..7]
+		if (reg >= 0x50 && reg <= 0x5c && slot_it != reg_to_slot.end())
+			return 4 + slot_it->second;
+		// AM/DR: 0x60..0x6C → data[8..11]
+		if (reg >= 0x60 && reg <= 0x6c && slot_it != reg_to_slot.end())
+			return 8 + slot_it->second;
+		// SR: 0x70..0x7C → data[12..15]
+		if (reg >= 0x70 && reg <= 0x7c && slot_it != reg_to_slot.end())
+			return 12 + slot_it->second;
+		// SL/RR: 0x80..0x8C → data[16..19]
+		if (reg >= 0x80 && reg <= 0x8c && slot_it != reg_to_slot.end())
+			return 16 + slot_it->second;
+		// SSG-EG: 0x90..0x9C → data[20..23]
+		if (reg >= 0x90 && reg <= 0x9c && slot_it != reg_to_slot.end())
+			return 20 + slot_it->second;
+
+		// TL uses special MDSDRV addresses: 0xfc=OP1, 0xfd=OP3, 0xfe=OP2, 0xff=OP4
+		// → data[24..27] in same physical order
+		static const std::map<uint8_t, int> tl_map = {
+			{0xfc, 24}, {0xfd, 25}, {0xfe, 26}, {0xff, 27}
+		};
+		auto tl_it = tl_map.find(reg);
+		if (tl_it != tl_map.end()) return tl_it->second;
+
+		// FB/ALG: 0xB0 → data[28]
+		if (reg == 0xb0) return 28;
+
+		return -1;
+	}
+}
+
+extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, uint32_t col)
+{
+	if (!g_compile.song || !g_compile.lines || !g_compile.tracks || !g_instrument_data)
+	{
+		g_channel_json = "null";
+		return g_channel_json.c_str();
+	}
+
+	// Find which track(s) have content on this line
+	auto line_it = g_compile.lines->find(static_cast<int>(line));
+	if (line_it == g_compile.lines->end())
+	{
+		g_channel_json = "null";
+		return g_channel_json.c_str();
+	}
+
+	const auto &line_map = line_it->second;
+	int best_track_id = -1;
+
+	for (const auto &[track_id, event_pos] : line_map)
+	{
+		if (track_id >= 16)
+			continue;
+		best_track_id = track_id;
+		break;
+	}
+
+	if (best_track_id < 0)
+	{
+		g_channel_json = "null";
+		return g_channel_json.c_str();
+	}
+
+	// Determine the event scan boundary from CompileLineMap.
+	// line_map[track_id] = event count at the START of parsing that line,
+	// i.e. events with index < this value were added by earlier lines.
+	// Use the cursor line's own entry as the boundary so that events
+	// added ON the cursor line are excluded (they come after the cursor).
+	unsigned long scan_limit = 0;
+	{
+		auto bound_it = g_compile.lines->lower_bound(static_cast<int>(line));
+		bool found = false;
+		while (bound_it != g_compile.lines->end())
+		{
+			auto tk = bound_it->second.find(static_cast<uint16_t>(best_track_id));
+			if (tk != bound_it->second.end())
+			{
+				scan_limit = tk->second;
+				found = true;
+				break;
+			}
+			++bound_it;
+		}
+		if (!found)
+		{
+			// No later line; scan all events in the track
+			try
+			{
+				scan_limit = g_compile.song->get_track(best_track_id).get_event_count();
+			}
+			catch (std::exception &)
+			{
+				scan_limit = 0;
+			}
+		}
+	}
+
+	// Scan raw Track events up to scan_limit to find:
+	// - active instrument (last Event::INS)
+	// - FM register overrides (Event::PLATFORM)
+	// - fm3 flags
+	const auto &ins_type_map = g_instrument_data->get_ins_type_map();
+	const auto &env_map = g_instrument_data->get_envelope_map_view();
+	const auto &data_bank = g_instrument_data->get_data_bank();
+
+	uint16_t ins_id = 0;
+	int fm3_flags = -1;
+	std::vector<uint8_t> effective_data;
+
+	// Collect FM overrides: pairs of (data_index, value/command)
+	struct FmOverride { uint8_t reg; int value; bool relative; };
+	std::vector<FmOverride> pending_overrides;
+
+	try
+	{
+		Track &track = g_compile.song->get_track(best_track_id);
+
+		for (unsigned long i = 0; i < scan_limit; ++i)
+		{
+			Event &event = track.get_event(i);
+
+			if (event.type == Event::INS)
+			{
+				ins_id = static_cast<uint16_t>(event.param);
+				pending_overrides.clear();
+				fm3_flags = -1;
+			}
+			else if (event.type == Event::PLATFORM)
+			{
+				try
+				{
+					Tag &cmd = g_compile.song->get_platform_command(event.param);
+					if (cmd.empty()) continue;
+					const std::string &cmd_name = cmd[0];
+
+					if (cmd_name == "fm3" && cmd.size() >= 2)
+					{
+						fm3_flags = static_cast<int>(
+							0x80 | ((std::strtol(cmd[1].c_str(), nullptr, 2) ^ 0x0f) & 0x0f));
+						continue;
+					}
+
+					if (cmd.size() < 2) continue;
+					uint8_t reg = MDSDRV_get_register(cmd_name);
+					if (reg == 0) continue;
+
+					int value = std::strtol(cmd[1].c_str(), nullptr, 10);
+					bool relative = (reg >= 0xfc) && (cmd[1][0] == '+' || cmd[1][0] == '-');
+					pending_overrides.push_back({reg, value, relative});
+				}
+				catch (std::exception &)
+				{
+					continue;
+				}
+			}
+		}
+	}
+	catch (std::exception &)
+	{
+		// Track access failed
+	}
+
+	// Look up instrument type
+	auto type_it = ins_type_map.find(ins_id);
+	if (type_it == ins_type_map.end())
+	{
+		g_channel_json = "null";
+		return g_channel_json.c_str();
+	}
+
+	const char *type_str = "unknown";
+	switch (type_it->second)
+	{
+	case MDSDRV_Data::INS_FM:  type_str = "fm";  break;
+	case MDSDRV_Data::INS_PSG: type_str = "psg"; break;
+	case MDSDRV_Data::INS_PCM: type_str = "pcm"; break;
+	default: break;
+	}
+
+	// Copy base instrument data and apply overrides
+	auto env_it = env_map.find(ins_id);
+	if (env_it != env_map.end() &&
+		env_it->second >= 0 &&
+		static_cast<size_t>(env_it->second) < data_bank.size())
+	{
+		effective_data = data_bank[env_it->second];
+	}
+
+	if (type_it->second == MDSDRV_Data::INS_FM && !effective_data.empty())
+	{
+		for (const auto &ov : pending_overrides)
+		{
+			int data_idx = fm_reg_to_data_index(ov.reg);
+			if (data_idx < 0 || static_cast<size_t>(data_idx) >= effective_data.size())
+				continue;
+			if (ov.relative)
+			{
+				int cur = effective_data[data_idx];
+				effective_data[data_idx] = static_cast<uint8_t>(
+					std::max(0, std::min(127, cur + ov.value)));
+			}
+			else
+			{
+				effective_data[data_idx] = static_cast<uint8_t>(ov.value);
+			}
+		}
+	}
+
+	std::ostringstream os;
+	os << "{\"track_id\":" << best_track_id
+	   << ",\"instrument_id\":" << ins_id
+	   << ",\"instrument_type\":\"" << type_str << "\"";
+
+	if (!effective_data.empty())
+	{
+		os << ",\"data\":[";
+		for (size_t i = 0; i < effective_data.size(); ++i)
+		{
+			if (i > 0) os << ',';
+			os << static_cast<int>(effective_data[i]);
+		}
+		os << ']';
+	}
+
+	if (fm3_flags >= 0)
+		os << ",\"fm3_flags\":" << fm3_flags;
+
+	os << '}';
+	g_channel_json = os.str();
+	return g_channel_json.c_str();
 }

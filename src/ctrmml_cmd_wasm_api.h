@@ -51,6 +51,9 @@ extern "C"
 	// Track data (JSON) — visualization
 	const char *ctrmml_cmd_wasm_get_track_data_json();
 
+	// Cursor channel info (JSON) — instrument data at cursor position
+	const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, uint32_t col);
+
 #ifdef __cplusplus
 }
 #endif

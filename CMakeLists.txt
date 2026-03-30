@@ -37,8 +37,8 @@ set_source_files_properties("${CTRMML_TEMPLATE_SRC}" PROPERTIES GENERATED TRUE)
 include(FetchContent)
 FetchContent_Declare(
   ctrmml
-  GIT_REPOSITORY https://github.com/superctr/ctrmml
-  GIT_TAG 821d54b
+  GIT_REPOSITORY https://github.com/ulalume/ctrmml.git
+  GIT_TAG add4579
 )
 FetchContent_Declare(
   libvgm
@@ -171,7 +171,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   target_link_options(ctrmml-cmd-wasm PRIVATE
     -fexceptions
     "SHELL:-sALLOW_MEMORY_GROWTH=1"
-    "SHELL:-sEXPORTED_FUNCTIONS=_malloc,_free,_ctrmml_cmd_wasm_compile,_ctrmml_cmd_wasm_get_compile_error,_ctrmml_cmd_wasm_check_json,_ctrmml_cmd_wasm_start_playback,_ctrmml_cmd_wasm_stop_playback,_ctrmml_cmd_wasm_is_playing,_ctrmml_cmd_wasm_render_audio,_ctrmml_cmd_wasm_set_mute_mask,_ctrmml_cmd_wasm_get_player_ticks,_ctrmml_cmd_wasm_get_highlights,_ctrmml_cmd_wasm_export_vgm,_ctrmml_cmd_wasm_export_wav,_ctrmml_cmd_wasm_quickrom,_ctrmml_cmd_wasm_mdslink,_ctrmml_cmd_wasm_get_last_error,_ctrmml_cmd_wasm_get_track_data_json,_ctrmml_cmd_wasm_find_cursor_tick"
+    "SHELL:-sEXPORTED_FUNCTIONS=_malloc,_free,_ctrmml_cmd_wasm_compile,_ctrmml_cmd_wasm_get_compile_error,_ctrmml_cmd_wasm_check_json,_ctrmml_cmd_wasm_start_playback,_ctrmml_cmd_wasm_stop_playback,_ctrmml_cmd_wasm_is_playing,_ctrmml_cmd_wasm_render_audio,_ctrmml_cmd_wasm_set_mute_mask,_ctrmml_cmd_wasm_get_player_ticks,_ctrmml_cmd_wasm_get_highlights,_ctrmml_cmd_wasm_export_vgm,_ctrmml_cmd_wasm_export_wav,_ctrmml_cmd_wasm_quickrom,_ctrmml_cmd_wasm_mdslink,_ctrmml_cmd_wasm_get_last_error,_ctrmml_cmd_wasm_get_track_data_json,_ctrmml_cmd_wasm_find_cursor_tick,_ctrmml_cmd_wasm_find_cursor_channel_json"
     "SHELL:-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,stringToUTF8,lengthBytesUTF8,UTF8ToString,HEAPF32,HEAPU32,FS"
     "SHELL:-sENVIRONMENT=web"
     "SHELL:-sMODULARIZE=1"
