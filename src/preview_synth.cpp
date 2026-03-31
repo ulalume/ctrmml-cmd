@@ -100,6 +100,9 @@ void PreviewSynth::load_fm(const uint8_t *data, int len)
 	std::memcpy(fm_instrument, data, 30);
 	fm_transpose = (static_cast<int>(fm_instrument[29] >> 1)) - 24;
 	fm_instrument_loaded = true;
+
+	for (int ch = 0; ch < 6; ch++)
+		fm_load_instrument(ch);
 }
 
 void PreviewSynth::fm_load_instrument(int ch)
@@ -114,7 +117,7 @@ void PreviewSynth::fm_load_instrument(int ch)
 	// Key off
 	fm_write(0, 0x28, id | (port << 2));
 
-	// Load operator params
+	// Load operator params (TL is handled by fm_set_volume, not here)
 	for (int op = 0; op < 4; op++)
 	{
 		fm_write(port, 0x30 + op * 4 + id, fm_instrument[0 + op]);  // DT/MUL
@@ -134,7 +137,7 @@ void PreviewSynth::fm_load_instrument(int ch)
 
 uint16_t PreviewSynth::calc_fm_pitch(uint8_t midi_note, int transpose)
 {
-	int note = static_cast<int>(midi_note) - 12 + transpose; // MIDI 12 = C0 in ctrmml
+	int note = static_cast<int>(midi_note) + transpose;
 	if (note < 0)
 		note = 0;
 	if (note > 95)
@@ -259,7 +262,7 @@ void PreviewSynth::load_psg(const uint8_t *data, int len)
 
 uint16_t PreviewSynth::calc_psg_pitch(uint8_t midi_note)
 {
-	int note = static_cast<int>(midi_note) - 12; // MIDI 12 = C0
+	int note = static_cast<int>(midi_note);
 	if (note < 0)
 		note = 0;
 	if (note > 95)
@@ -400,7 +403,6 @@ void PreviewSynth::note_on(uint8_t midi_note, uint8_t velocity)
 		}
 
 		int ch = fm_allocate_voice();
-		fm_load_instrument(ch);
 		fm_voices[ch].active = true;
 		fm_voices[ch].midi_note = midi_note;
 		fm_voices[ch].age = ++age_counter;
@@ -447,7 +449,8 @@ void PreviewSynth::note_off(uint8_t midi_note)
 			if (fm_voices[i].active && fm_voices[i].midi_note == midi_note)
 			{
 				fm_key_off(i);
-				fm_voices[i].active = false;
+				// Keep active=true so voice allocator knows it's releasing.
+				// allNotesOff or voice stealing will reclaim it.
 				break;
 			}
 		}
@@ -458,6 +461,7 @@ void PreviewSynth::note_off(uint8_t midi_note)
 		{
 			if (psg_voices[i].active && psg_voices[i].midi_note == midi_note)
 			{
+				// Signal envelope to enter release phase (sustain → release)
 				psg_voices[i].env_keyoff = true;
 				break;
 			}
@@ -472,9 +476,14 @@ void PreviewSynth::all_notes_off()
 
 	for (int i = 0; i < 6; i++)
 	{
-		if (fm_voices[i].active)
-			fm_key_off(i);
+		// Silence immediately: TL=max then key-off (kills release tails too)
+		uint8_t port = i / 3;
+		uint8_t id = i % 3;
+		for (int op = 0; op < 4; op++)
+			fm_write(port, 0x40 + op * 4 + id, 0x7f);
+		fm_key_off(i);
 		fm_voices[i].active = false;
+		fm_voices[i].age = 0;
 	}
 
 	for (int i = 0; i < 3; i++)
@@ -487,18 +496,9 @@ void PreviewSynth::all_notes_off()
 
 bool PreviewSynth::is_active() const
 {
-	if (!initialized)
-		return false;
-
-	for (int i = 0; i < 6; i++)
-		if (fm_voices[i].active)
-			return true;
-
-	for (int i = 0; i < 3; i++)
-		if (psg_voices[i].active || psg_voices[i].env_keyoff)
-			return true;
-
-	return false;
+	// Always render when initialized — chip emulators are cheap and
+	// we need to hear FM release envelopes after noteOff.
+	return initialized;
 }
 
 void PreviewSynth::render(WAVE_32BS *output, int frames)

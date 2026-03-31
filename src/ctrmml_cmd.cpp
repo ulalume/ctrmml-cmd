@@ -338,7 +338,8 @@ namespace
 			const std::string &text,
 			const std::filesystem::path &base_dir,
 			const std::string &display_name,
-			CompileFn compile_fn)
+			CompileFn compile_fn,
+			CompileResult *out_compile = nullptr)
 	{
 		ctrmml_cmd::CheckReport report{};
 
@@ -411,6 +412,8 @@ namespace
 			}
 		}
 
+		if (out_compile)
+			*out_compile = std::move(compile);
 		return report;
 	}
 
@@ -490,13 +493,15 @@ namespace ctrmml_cmd
 {
 	CheckReport check_text_report(const std::string &text,
 																const std::string &base_dir,
-																const std::string &display_name)
+																const std::string &display_name,
+																CompileResult *out_compile)
 	{
 		return build_check_report(
 				text,
 				base_dir,
 				display_name,
-				[&]() { return compile_mml_text(text, base_dir, display_name); });
+				[&]() { return compile_mml_text(text, base_dir, display_name); },
+				out_compile);
 	}
 
 	CheckReport check_file_report(const std::string &path)

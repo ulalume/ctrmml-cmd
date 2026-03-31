@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "mml_compile.h"
+
 namespace ctrmml_cmd
 {
 struct CheckMessage
@@ -34,7 +36,8 @@ struct CheckMessage
 	CheckReport check_file_report(const std::string &path);
 	CheckReport check_text_report(const std::string &text,
 																const std::string &base_dir,
-																const std::string &display_name);
+																const std::string &display_name,
+																CompileResult *out_compile = nullptr);
 	std::string check_report_json(const CheckReport &report);
 
 	CheckResult check_file(const std::string &path);

@@ -8,6 +8,7 @@
 
 #include "ctrmml_cmd.h"
 #include "highlight_tracker.h"
+#include "input.h"
 #include "mdslink_tool.h"
 #include "mml_compile.h"
 #include "platform/mdsdrv.h"
@@ -46,6 +47,24 @@ namespace
 	void set_error(const std::string &msg)
 	{
 		g_last_error = msg;
+	}
+
+	void rebuild_instrument_data()
+	{
+		if (!g_compile.song)
+		{
+			g_instrument_data.reset();
+			return;
+		}
+		try
+		{
+			g_instrument_data = std::make_unique<MDSDRV_Data>();
+			g_instrument_data->read_song(*g_compile.song);
+		}
+		catch (std::exception &)
+		{
+			g_instrument_data.reset();
+		}
 	}
 
 	/** Populate MdslinkOptions.inputs from a char** array. Returns false on null entry. */
@@ -104,16 +123,7 @@ extern "C" int ctrmml_cmd_wasm_compile(const char *text, const char *base_dir)
 		return 1;
 	}
 
-	try
-	{
-		g_instrument_data = std::make_unique<MDSDRV_Data>();
-		g_instrument_data->read_song(*g_compile.song);
-	}
-	catch (std::exception &)
-	{
-		g_instrument_data.reset();
-	}
-
+	rebuild_instrument_data();
 	return 0;
 }
 
@@ -131,8 +141,10 @@ extern "C" const char *ctrmml_cmd_wasm_check_json(const char *text,
 		return g_check_json_result.c_str();
 	}
 
-	auto report = ctrmml_cmd::check_text_report(text, base_dir, "input.mml");
+	auto report = ctrmml_cmd::check_text_report(text, base_dir, "input.mml", &g_compile);
 	g_check_json_result = ctrmml_cmd::check_report_json(report);
+	rebuild_instrument_data();
+
 	return g_check_json_result.c_str();
 }
 
@@ -205,6 +217,7 @@ extern "C" int ctrmml_cmd_wasm_render_audio(float *output, int frames)
 	static std::vector<WAVE_32BS> scratch;
 	if (static_cast<int>(scratch.size()) < frames)
 		scratch.resize(frames);
+	std::memset(scratch.data(), 0, frames * sizeof(WAVE_32BS));
 	int written = 0;
 
 	if (has_main)
@@ -557,42 +570,83 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 		}
 	}
 
-	// Scan raw Track events up to scan_limit to find:
+	// Scan raw Track events to find:
 	// - active instrument (last Event::INS)
-	// - FM register overrides (Event::PLATFORM)
-	// - fm3 flags
+	// - FM register overrides (Event::PLATFORM) — only BEFORE cursor line
+	// - fm3 flags — only BEFORE cursor line
+	// - last note (Event::NOTE) — including cursor line, up to cursor column
 	const auto &ins_type_map = g_instrument_data->get_ins_type_map();
 	const auto &env_map = g_instrument_data->get_envelope_map_view();
 	const auto &data_bank = g_instrument_data->get_data_bank();
 
 	uint16_t ins_id = 0;
 	int fm3_flags = -1;
-	int last_note = -1; // last NOTE event param (ctrmml note number)
+	int last_note = -1;
 	std::vector<uint8_t> effective_data;
 
-	// Collect FM overrides: pairs of (data_index, value/command)
 	struct FmOverride { uint8_t reg; int value; bool relative; };
 	std::vector<FmOverride> pending_overrides;
+
+	// Determine extended scan limit (includes cursor line) for NOTE/INS
+	unsigned long extended_limit = 0;
+	{
+		auto upper_it = g_compile.lines->upper_bound(static_cast<int>(line));
+		bool found = false;
+		while (upper_it != g_compile.lines->end())
+		{
+			auto tk = upper_it->second.find(static_cast<uint16_t>(best_track_id));
+			if (tk != upper_it->second.end())
+			{
+				extended_limit = tk->second;
+				found = true;
+				break;
+			}
+			++upper_it;
+		}
+		if (!found)
+		{
+			try { extended_limit = g_compile.song->get_track(best_track_id).get_event_count(); }
+			catch (std::exception &) { extended_limit = 0; }
+		}
+	}
 
 	try
 	{
 		Track &track = g_compile.song->get_track(best_track_id);
 
-		for (unsigned long i = 0; i < scan_limit; ++i)
+		for (unsigned long i = 0; i < extended_limit; ++i)
 		{
 			Event &event = track.get_event(i);
+			bool before_cursor_line = (i < scan_limit);
 
 			if (event.type == Event::NOTE)
 			{
-				last_note = event.param;
+				// Accept notes from cursor line only if their source is before cursor col
+				if (before_cursor_line)
+				{
+					last_note = event.param;
+				}
+				else
+				{
+					auto ref = event.reference;
+					if (ref && (ref->get_line() < static_cast<int>(line) ||
+								(ref->get_line() == static_cast<int>(line) &&
+								 ref->get_column() < static_cast<int>(col))))
+					{
+						last_note = event.param;
+					}
+				}
 			}
 			else if (event.type == Event::INS)
 			{
 				ins_id = static_cast<uint16_t>(event.param);
-				pending_overrides.clear();
-				fm3_flags = -1;
+				if (before_cursor_line)
+				{
+					pending_overrides.clear();
+					fm3_flags = -1;
+				}
 			}
-			else if (event.type == Event::PLATFORM)
+			else if (event.type == Event::PLATFORM && before_cursor_line)
 			{
 				try
 				{
@@ -692,13 +746,69 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 	if (fm3_flags >= 0)
 		os << ",\"fm3_flags\":" << fm3_flags;
 
-	// Octave derived from last note event (note / 12). Default 4 if no notes yet.
-	int octave = (last_note >= 0) ? (last_note / 12) : 4;
+	// Octave derived from last note event (note / 12). Default 5 (= MML o4, MIDI C4=60).
+	int octave = (last_note >= 0) ? (last_note / 12) : 5;
 	os << ",\"octave\":" << octave;
 
 	os << '}';
 	g_channel_json = os.str();
 	return g_channel_json.c_str();
+}
+
+// ---------------------------------------------------------------------------
+// Instrument data lookup by ID
+// ---------------------------------------------------------------------------
+
+namespace { std::string g_ins_json; }
+
+extern "C" const char *ctrmml_cmd_wasm_get_instrument_data_json(uint16_t ins_id)
+{
+	if (!g_instrument_data)
+	{
+		g_ins_json = "null";
+		return g_ins_json.c_str();
+	}
+
+	const auto &type_map = g_instrument_data->get_ins_type_map();
+	auto type_it = type_map.find(ins_id);
+	if (type_it == type_map.end())
+	{
+		g_ins_json = "null";
+		return g_ins_json.c_str();
+	}
+
+	const char *type_str = "unknown";
+	switch (type_it->second)
+	{
+	case MDSDRV_Data::INS_FM:  type_str = "fm";  break;
+	case MDSDRV_Data::INS_PSG: type_str = "psg"; break;
+	case MDSDRV_Data::INS_PCM: type_str = "pcm"; break;
+	default: break;
+	}
+
+	const auto &env_map = g_instrument_data->get_envelope_map_view();
+	const auto &data_bank = g_instrument_data->get_data_bank();
+	auto env_it = env_map.find(ins_id);
+
+	std::ostringstream os;
+	os << "{\"instrument_type\":\"" << type_str << "\"";
+
+	if (env_it != env_map.end() && env_it->second >= 0 &&
+		static_cast<size_t>(env_it->second) < data_bank.size())
+	{
+		const auto &data = data_bank[env_it->second];
+		os << ",\"data\":[";
+		for (size_t i = 0; i < data.size(); ++i)
+		{
+			if (i > 0) os << ',';
+			os << static_cast<int>(data[i]);
+		}
+		os << ']';
+	}
+
+	os << '}';
+	g_ins_json = os.str();
+	return g_ins_json.c_str();
 }
 
 // ---------------------------------------------------------------------------
