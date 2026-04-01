@@ -746,7 +746,7 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 	if (fm3_flags >= 0)
 		os << ",\"fm3_flags\":" << fm3_flags;
 
-	// Octave derived from last note event (note / 12). Default 5 (= MML o4, MIDI C4=60).
+	// Octave derived from last note event (note / 12). Default = MML o6 (DEFAULT_OCTAVE=5).
 	int octave = (last_note >= 0) ? (last_note / 12) : 5;
 	os << ",\"octave\":" << octave;
 

@@ -12,17 +12,17 @@ static const uint16_t fm_freqtab[13] = {
 static const uint16_t psg_freqtab[13] = {
 	1710, 1614, 1524, 1438, 1357, 1281, 1209, 1141, 1077, 1017, 960, 906, 855};
 
-// Algorithm → carrier operator mask (which ops are carriers)
-// Bit order: OP4(3) OP3(2) OP2(1) OP1(0)
+// Algorithm → carrier operator mask in PHYSICAL slot order
+// Physical: slot 0=OP1, slot 1=OP3, slot 2=OP2, slot 3=OP4
 static const uint8_t alg_carrier_mask[8] = {
-	0x08, // ALG 0: OP4 only
-	0x08, // ALG 1: OP4 only
-	0x08, // ALG 2: OP4 only
-	0x08, // ALG 3: OP4 only
-	0x0A, // ALG 4: OP2 + OP4
-	0x0E, // ALG 5: OP2 + OP3 + OP4
-	0x0E, // ALG 6: OP2 + OP3 + OP4
-	0x0F, // ALG 7: all carriers
+	0x08, // ALG 0: OP4(3)
+	0x08, // ALG 1: OP4(3)
+	0x08, // ALG 2: OP4(3)
+	0x08, // ALG 3: OP4(3)
+	0x0C, // ALG 4: OP2(2) + OP4(3)
+	0x0E, // ALG 5: OP2(2) + OP3(1) + OP4(3)
+	0x0E, // ALG 6: OP2(2) + OP3(1) + OP4(3)
+	0x0F, // ALG 7: all
 };
 
 // Mega Drive clock frequencies
@@ -33,7 +33,7 @@ PreviewSynth::PreviewSynth()
 	: initialized(false), mode(0),
 	  fm_instrument_loaded(false), fm_transpose(0),
 	  psg_envelope_loaded(false),
-	  sample_rate(44100), psg_tick_counter(0), psg_tick_period(294),
+	  sample_rate(44100), psg_tick_counter(0), psg_tick_period(459),
 	  age_counter(0)
 {
 	std::memset(fm_voices, 0, sizeof(fm_voices));
@@ -51,7 +51,8 @@ void PreviewSynth::init(uint32_t rate)
 	deinit();
 
 	sample_rate = rate;
-	psg_tick_period = rate / 150; // MDSDRV default sequencer rate
+	// MDSDRV tick rate = BPM * PPQN / 60. Default: 120 * 48 / 60 = 96 Hz.
+	psg_tick_period = rate * 60 / (120 * 48);
 	psg_tick_counter = 0;
 	age_counter = 0;
 
@@ -322,51 +323,50 @@ void PreviewSynth::psg_update_envelopes()
 			continue;
 		}
 
-		if (v.env_delay > 0)
+		// Match upstream: env_delay is the full data byte. Process when < 0x20.
+		if (v.env_delay >= 0x20)
 		{
-			v.env_delay--;
+			v.env_delay -= 0x10;
 			continue;
 		}
+
+		if (v.env_pos < 0 || static_cast<size_t>(v.env_pos) >= psg_envelope.size())
+			continue;
 
 		uint8_t byte = psg_envelope[v.env_pos];
 
-		if (byte == 0x00)
+		// Sustain: wait until key off
+		if (byte == 0x01 && v.env_keyoff)
 		{
-			// End
-			psg_set_volume(ch, 15);
-			v.active = false;
-			continue;
+			v.env_pos++;
+			v.env_keyoff = false;
 		}
-		else if (byte == 0x01)
+		// Loop
+		else if (byte == 0x02 && !v.env_keyoff)
 		{
-			// Sustain point
-			if (v.env_keyoff)
-			{
-				v.env_pos++;
-				v.env_keyoff = false;
-			}
-			// else: stay here until key off
-			continue;
-		}
-		else if (byte == 0x02)
-		{
-			// Loop: next byte = target position
 			if (static_cast<size_t>(v.env_pos + 1) < psg_envelope.size())
 				v.env_pos = psg_envelope[v.env_pos + 1];
-			else
-				v.env_pos = 0;
-			continue;
 		}
-		else
+
+		// Re-read byte after possible jump
+		byte = psg_envelope[v.env_pos];
+
+		// Data byte (> 0x0F): set volume + frame duration
+		if (byte > 0x0f)
 		{
-			// Volume + delay: high nibble = frames-1, low nibble = volume
+			v.env_delay = byte;
 			uint8_t vol = byte & 0x0f;
-			uint8_t frames = (byte >> 4) & 0x0f;
 			v.env_vol = vol;
-			v.env_delay = frames;
 			psg_set_volume(ch, vol);
 			v.env_pos++;
 		}
+		// End/stop (0x00-0x0F): mute only if key off
+		else if (v.env_keyoff)
+		{
+			psg_set_volume(ch, 15);
+			v.active = false;
+		}
+		// Otherwise: hold last volume (do nothing)
 	}
 }
 
@@ -428,12 +428,14 @@ void PreviewSynth::note_on(uint8_t midi_note, uint8_t velocity)
 		psg_voices[ch].active = true;
 		psg_voices[ch].midi_note = midi_note;
 		psg_voices[ch].env_pos = 0;
-		psg_voices[ch].env_delay = 0;
+		psg_voices[ch].env_delay = 0x1f; // match upstream: 31-tick warmup before envelope starts
 		psg_voices[ch].env_keyoff = false;
 		psg_voices[ch].env_vol = 0;
 
 		psg_set_pitch(ch, midi_note);
-		psg_set_volume(ch, 0); // start audible, envelope takes over
+		// Match upstream: env_delay starts at 0x1f, low nibble 0xf = attenuation 15 (silent).
+		// The envelope's first data byte will set the actual volume.
+		psg_set_volume(ch, 15);
 	}
 }
 
@@ -506,28 +508,18 @@ void PreviewSynth::render(WAVE_32BS *output, int frames)
 	if (!initialized || !output || frames <= 0)
 		return;
 
-	// Advance PSG envelopes using modular arithmetic
-	uint32_t remaining = static_cast<uint32_t>(frames);
-	while (remaining > 0)
-	{
-		uint32_t until_tick = psg_tick_period - psg_tick_counter;
-		if (until_tick <= remaining)
-		{
-			remaining -= until_tick;
-			psg_tick_counter = 0;
-			psg_update_envelopes();
-		}
-		else
-		{
-			psg_tick_counter += remaining;
-			break;
-		}
-	}
-
-	// Render chip audio (additive)
+	// Interleave PSG envelope ticks with chip rendering (sample-accurate)
 	WAVE_32BS tmp;
 	for (int i = 0; i < frames; i++)
 	{
+		// Advance PSG envelope at the correct sample positions
+		psg_tick_counter++;
+		if (psg_tick_counter >= psg_tick_period)
+		{
+			psg_tick_counter = 0;
+			psg_update_envelopes();
+		}
+
 		tmp.L = 0;
 		tmp.R = 0;
 		ym2612->get_sample(&tmp, 1);
