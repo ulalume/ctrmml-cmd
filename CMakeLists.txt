@@ -38,7 +38,7 @@ include(FetchContent)
 FetchContent_Declare(
   ctrmml
   GIT_REPOSITORY https://github.com/ulalume/ctrmml.git
-  GIT_TAG add4579
+  GIT_TAG 5934530
 )
 FetchContent_Declare(
   libvgm
