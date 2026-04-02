@@ -224,6 +224,7 @@ namespace
 
 	constexpr int kMdsdrvRomNoteMin = 0;
 	constexpr int kMdsdrvRomNoteExclusiveMax = 94; // SLR - NOTE = 0xe0 - 0x82
+	constexpr int kMegadriveChannelTrackCount = 16;
 
 	ctrmml_cmd::CheckMessage make_message_from_ref(
 			const std::shared_ptr<InputRef> &ref,
@@ -276,6 +277,8 @@ namespace
 
 		for (auto &[track_id, track] : song->get_track_map())
 		{
+			if (track_id >= kMegadriveChannelTrackCount)
+				continue;
 			if (drum_subroutine_tracks.count(static_cast<int16_t>(track_id)))
 				continue;
 			(void)track_id;
