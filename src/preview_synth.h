@@ -23,7 +23,7 @@ public:
 	// Load PSG envelope from compiled MDSDRV binary
 	void load_psg(const uint8_t *data, int len);
 
-	// Set mode: 0=FM, 1=PSG
+	// Set mode: 0=FM, 1=PSG tone, 2=PSG noise (mode 0), 3=PSG noise (mode 1/white)
 	void set_mode(int mode);
 
 	// Note on/off (MIDI note number, 0-127)
@@ -59,8 +59,8 @@ private:
 	std::unique_ptr<SoundDevice> sn76496;
 	bool initialized;
 
-	// Current mode
-	int mode; // 0=FM, 1=PSG
+	// Current mode: 0=FM, 1=PSG tone, 2=PSG noise(mode0), 3=PSG noise(mode1/white)
+	int mode;
 
 	// FM state
 	struct FmVoice
@@ -85,6 +85,7 @@ private:
 		uint8_t env_vol;
 	};
 	PsgVoice psg_voices[3];
+	PsgVoice psg_noise_voice; // ch3 (noise channel)
 	std::vector<uint8_t> psg_envelope;
 	bool psg_envelope_loaded;
 

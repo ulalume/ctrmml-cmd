@@ -39,6 +39,7 @@ PreviewSynth::PreviewSynth()
 	std::memset(fm_voices, 0, sizeof(fm_voices));
 	std::memset(fm_instrument, 0, sizeof(fm_instrument));
 	std::memset(psg_voices, 0, sizeof(psg_voices));
+	std::memset(&psg_noise_voice, 0, sizeof(psg_noise_voice));
 }
 
 PreviewSynth::~PreviewSynth()
@@ -81,6 +82,7 @@ void PreviewSynth::deinit()
 	psg_envelope_loaded = false;
 	std::memset(fm_voices, 0, sizeof(fm_voices));
 	std::memset(psg_voices, 0, sizeof(psg_voices));
+	std::memset(&psg_noise_voice, 0, sizeof(psg_noise_voice));
 }
 
 // ---------------------------------------------------------------------------
@@ -368,6 +370,58 @@ void PreviewSynth::psg_update_envelopes()
 		}
 		// Otherwise: hold last volume (do nothing)
 	}
+
+	// Noise voice envelope (ch3) — same logic as tone voices
+	{
+		auto &v = psg_noise_voice;
+		if (!v.active && !v.env_keyoff)
+			return;
+
+		if (v.env_pos < 0 || static_cast<size_t>(v.env_pos) >= psg_envelope.size())
+		{
+			psg_set_volume(3, 15);
+			v.active = false;
+			return;
+		}
+
+		if (v.env_delay >= 0x20)
+		{
+			v.env_delay -= 0x10;
+			return;
+		}
+
+		if (v.env_pos < 0 || static_cast<size_t>(v.env_pos) >= psg_envelope.size())
+			return;
+
+		uint8_t byte = psg_envelope[v.env_pos];
+
+		if (byte == 0x01 && v.env_keyoff)
+		{
+			v.env_pos++;
+			v.env_keyoff = false;
+		}
+		else if (byte == 0x02 && !v.env_keyoff)
+		{
+			if (static_cast<size_t>(v.env_pos + 1) < psg_envelope.size())
+				v.env_pos = psg_envelope[v.env_pos + 1];
+		}
+
+		byte = psg_envelope[v.env_pos];
+
+		if (byte > 0x0f)
+		{
+			v.env_delay = byte;
+			uint8_t vol = byte & 0x0f;
+			v.env_vol = vol;
+			psg_set_volume(3, vol);
+			v.env_pos++;
+		}
+		else if (v.env_keyoff)
+		{
+			psg_set_volume(3, 15);
+			v.active = false;
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -413,7 +467,7 @@ void PreviewSynth::note_on(uint8_t midi_note, uint8_t velocity)
 	}
 	else if (mode == 1 && psg_envelope_loaded)
 	{
-		// PSG mode
+		// PSG tone mode
 		for (int i = 0; i < 3; i++)
 		{
 			if (psg_voices[i].active && psg_voices[i].midi_note == midi_note)
@@ -428,14 +482,49 @@ void PreviewSynth::note_on(uint8_t midi_note, uint8_t velocity)
 		psg_voices[ch].active = true;
 		psg_voices[ch].midi_note = midi_note;
 		psg_voices[ch].env_pos = 0;
-		psg_voices[ch].env_delay = 0x1f; // match upstream: 31-tick warmup before envelope starts
+		psg_voices[ch].env_delay = 0x1f;
 		psg_voices[ch].env_keyoff = false;
 		psg_voices[ch].env_vol = 0;
 
 		psg_set_pitch(ch, midi_note);
-		// Match upstream: env_delay starts at 0x1f, low nibble 0xf = attenuation 15 (silent).
-		// The envelope's first data byte will set the actual volume.
 		psg_set_volume(ch, 15);
+	}
+	else if ((mode == 2 || mode == 3) && psg_envelope_loaded)
+	{
+		// PSG noise mode (ch3)
+		// Stop existing noise
+		if (psg_noise_voice.active)
+		{
+			psg_set_volume(3, 15);
+			psg_noise_voice.active = false;
+		}
+
+		psg_noise_voice.active = true;
+		psg_noise_voice.midi_note = midi_note;
+		psg_noise_voice.env_pos = 0;
+		psg_noise_voice.env_delay = 0x1f;
+		psg_noise_voice.env_keyoff = false;
+		psg_noise_voice.env_vol = 0;
+
+		if (mode == 2)
+		{
+			// Noise mode 0 (NORMAL): derive register 6 value from MIDI note.
+			// In ctrmml, internal pitch = ((note + octave*12) << 8), and the
+			// driver writes (pitch >> 8) & 7 to the noise register.
+			// MIDI note number = note + octave*12, so: midi_note & 7.
+			uint8_t noise_val = midi_note & 0x07;
+			psg_write(0x80 | (3 << 5) | (noise_val & 0x0f));
+		}
+		else
+		{
+			// Noise mode 1 (WHITE): use ch2's frequency for noise pitch.
+			// Set register 6 = 0x07 (white noise + ch2 freq source)
+			psg_write(0x80 | (3 << 5) | 0x07);
+			// Write the note pitch to ch2 (tone channel used as noise freq source)
+			psg_set_pitch(2, midi_note);
+		}
+
+		psg_set_volume(3, 15); // start silent, envelope will set volume
 	}
 }
 
@@ -463,10 +552,16 @@ void PreviewSynth::note_off(uint8_t midi_note)
 		{
 			if (psg_voices[i].active && psg_voices[i].midi_note == midi_note)
 			{
-				// Signal envelope to enter release phase (sustain → release)
 				psg_voices[i].env_keyoff = true;
 				break;
 			}
+		}
+	}
+	else if (mode == 2 || mode == 3)
+	{
+		if (psg_noise_voice.active && psg_noise_voice.midi_note == midi_note)
+		{
+			psg_noise_voice.env_keyoff = true;
 		}
 	}
 }
@@ -494,6 +589,11 @@ void PreviewSynth::all_notes_off()
 		psg_voices[i].active = false;
 		psg_voices[i].env_keyoff = false;
 	}
+
+	// Noise channel (ch3)
+	psg_set_volume(3, 15);
+	psg_noise_voice.active = false;
+	psg_noise_voice.env_keyoff = false;
 }
 
 bool PreviewSynth::is_active() const
