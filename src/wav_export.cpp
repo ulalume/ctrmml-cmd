@@ -5,18 +5,9 @@
 #include <iostream>
 #include <vector>
 
-#include <player/droplayer.hpp>
-#include <player/gymplayer.hpp>
-#include <player/playera.hpp>
-#include <player/playerbase.hpp>
-#include <player/s98player.hpp>
-#include <player/vgmplayer.hpp>
-#include <utils/MemoryLoader.h>
-#include <emu/EmuCores.h>
-#include <emu/SoundDevs.h>
-#include <emu/cores/2612intf.h>
-
+#include "lowpass_filter.h"
 #include "mml_compile.h"
+#include "vgm_audio_renderer.h"
 
 namespace
 {
@@ -26,40 +17,33 @@ namespace
 	const unsigned int kWavChannels = 2;
 	const unsigned int kWavFadeSeconds = 8;
 	const unsigned int kWavLoops = 2;
+	const float kInvSampleScale = 1.0f / 8388608.0f;
 	const char *kExtensibleGuidTrailer = "\x00\x00\x00\x00\x10\x00\x80\x00\x00\xAA\x00\x38\x9B\x71";
-	const UINT32 kNukedMD1Filter = OPT_YM2612_TYPE_OPN2C_ASIC | OPT_YM2612_TYPE_OPN2C_DISC;
 
-	void pack_int16le(UINT8 *d, INT16 n)
+	void pack_int16le(uint8_t *d, int16_t n)
 	{
-		d[0] = static_cast<UINT8>(static_cast<UINT16>(n));
-		d[1] = static_cast<UINT8>(static_cast<UINT16>(n) >> 8);
+		d[0] = static_cast<uint8_t>(static_cast<uint16_t>(n));
+		d[1] = static_cast<uint8_t>(static_cast<uint16_t>(n) >> 8);
 	}
 
-	void pack_uint16le(UINT8 *d, UINT16 n)
+	void pack_uint16le(uint8_t *d, uint16_t n)
 	{
-		d[0] = static_cast<UINT8>(n);
-		d[1] = static_cast<UINT8>(n >> 8);
+		d[0] = static_cast<uint8_t>(n);
+		d[1] = static_cast<uint8_t>(n >> 8);
 	}
 
-	void pack_int24le(UINT8 *d, INT32 n)
+	void pack_uint32le(uint8_t *d, uint32_t n)
 	{
-		d[0] = static_cast<UINT8>(n);
-		d[1] = static_cast<UINT8>(n >> 8);
-		d[2] = static_cast<UINT8>(n >> 16);
-	}
-
-	void pack_uint32le(UINT8 *d, UINT32 n)
-	{
-		d[0] = static_cast<UINT8>(n);
-		d[1] = static_cast<UINT8>(n >> 8);
-		d[2] = static_cast<UINT8>(n >> 16);
-		d[3] = static_cast<UINT8>(n >> 24);
+		d[0] = static_cast<uint8_t>(n);
+		d[1] = static_cast<uint8_t>(n >> 8);
+		d[2] = static_cast<uint8_t>(n >> 16);
+		d[3] = static_cast<uint8_t>(n >> 24);
 	}
 
 	bool write_wav_header(FILE *f, unsigned int total_frames)
 	{
 		unsigned int data_size = total_frames * (kWavBitDepth / 8) * kWavChannels;
-		UINT8 tmp[4];
+		uint8_t tmp[4];
 		if (fwrite("RIFF", 1, 4, f) != 4)
 			return false;
 		pack_uint32le(tmp, 4 + (8 + data_size) + (8 + 40));
@@ -128,61 +112,86 @@ namespace
 		return true;
 	}
 
-	void frames_to_little_endian(UINT8 *data, unsigned int frame_count)
-	{
-		for (unsigned int i = 0; i < frame_count; ++i)
-		{
-			if (kWavBitDepth == 16)
-			{
-				pack_int16le(&data[0], *reinterpret_cast<INT16 *>(&data[0]));
-				pack_int16le(&data[2], *reinterpret_cast<INT16 *>(&data[2]));
-			}
-			else
-			{
-				pack_int24le(&data[0], *reinterpret_cast<INT32 *>(&data[0]) & 0x00FFFFFF);
-				pack_int24le(&data[3], *reinterpret_cast<INT32 *>(&data[3]) & 0x00FFFFFF);
-			}
-			data += ((kWavBitDepth / 8) * kWavChannels);
-		}
-	}
-
-	bool write_frames(FILE *f, unsigned int frame_count, UINT8 *data)
-	{
-		return fwrite(data, (kWavBitDepth / 8) * kWavChannels, frame_count, f) == frame_count;
-	}
-
 	bool export_wav_song(const std::shared_ptr<Song> &song, const std::string &out_path)
 	{
 		if (!song)
 			return false;
 
-		std::vector<uint8_t> data = song->get_platform()->get_export_data(*song.get(), 0);
-		if (data.empty())
+		VgmAudioRenderer renderer(song, 0, false);
+		renderer.setup_stream(kWavSampleRate);
+
+		LowPassFilter lpf;
+		lpf.init(kWavSampleRate);
+
+		// Pass 1: render to memory to determine total length and handle loops
+		const unsigned int fade_frames = kWavSampleRate * kWavFadeSeconds;
+		const unsigned int max_frames = kWavSampleRate * 600; // 10 minute safety limit
+		std::vector<int16_t> pcm_data;
+		pcm_data.reserve(kWavSampleRate * 60 * kWavChannels); // pre-allocate ~1 min
+
+		std::vector<WAVE_32BS> scratch(kWavBufferFrames);
+		bool has_loop = false;
+		unsigned int frames_rendered = 0;
+
+		while (!renderer.is_finished() && frames_rendered < max_frames)
 		{
-			std::cerr << "failed to export vgm data" << std::endl;
-			return false;
+			unsigned int chunk = kWavBufferFrames;
+			std::memset(scratch.data(), 0, chunk * sizeof(WAVE_32BS));
+			renderer.get_sample(scratch.data(), static_cast<int>(chunk));
+
+			for (unsigned int i = 0; i < chunk; ++i)
+			{
+				lpf.apply(scratch[i].L, scratch[i].R);
+				float l = scratch[i].L * kInvSampleScale;
+				float r = scratch[i].R * kInvSampleScale;
+				if (l > 1.0f) l = 1.0f;
+				if (l < -1.0f) l = -1.0f;
+				if (r > 1.0f) r = 1.0f;
+				if (r < -1.0f) r = -1.0f;
+				pcm_data.push_back(static_cast<int16_t>(l * 32767.0f));
+				pcm_data.push_back(static_cast<int16_t>(r * 32767.0f));
+			}
+
+			frames_rendered += chunk;
+
+			if (renderer.get_loop_count() >= static_cast<int>(kWavLoops))
+			{
+				has_loop = true;
+				break;
+			}
 		}
 
-		PlayerA player;
-		player.RegisterPlayerEngine(new VGMPlayer);
-		player.RegisterPlayerEngine(new S98Player);
-		player.RegisterPlayerEngine(new DROPlayer);
-		player.RegisterPlayerEngine(new GYMPlayer);
-
-		if (player.SetOutputSettings(kWavSampleRate, kWavChannels, kWavBitDepth, kWavBufferFrames))
+		// Apply fade-out if the song loops
+		unsigned int total_frames = frames_rendered;
+		if (has_loop)
 		{
-			std::cerr << "unsupported sample rate / bit depth" << std::endl;
-			return false;
+			// Render additional frames for fade-out
+			unsigned int fade_rendered = 0;
+			while (fade_rendered < fade_frames && !renderer.is_finished())
+			{
+				unsigned int chunk = std::min(kWavBufferFrames, fade_frames - fade_rendered);
+				std::memset(scratch.data(), 0, chunk * sizeof(WAVE_32BS));
+				renderer.get_sample(scratch.data(), static_cast<int>(chunk));
+
+				for (unsigned int i = 0; i < chunk; ++i)
+				{
+					lpf.apply(scratch[i].L, scratch[i].R);
+					float fade = 1.0f - static_cast<float>(fade_rendered + i) / static_cast<float>(fade_frames);
+					float l = scratch[i].L * kInvSampleScale * fade;
+					float r = scratch[i].R * kInvSampleScale * fade;
+					if (l > 1.0f) l = 1.0f;
+					if (l < -1.0f) l = -1.0f;
+					if (r > 1.0f) r = 1.0f;
+					if (r < -1.0f) r = -1.0f;
+					pcm_data.push_back(static_cast<int16_t>(l * 32767.0f));
+					pcm_data.push_back(static_cast<int16_t>(r * 32767.0f));
+				}
+				fade_rendered += chunk;
+			}
+			total_frames += fade_rendered;
 		}
 
-		PlayerA::Config config = player.GetConfiguration();
-		config.masterVol = 0x10000;
-		config.loopCount = kWavLoops;
-		config.fadeSmpls = kWavSampleRate * kWavFadeSeconds;
-		config.endSilenceSmpls = 0;
-		config.pbSpeed = 1.0;
-		player.SetConfiguration(config);
-
+		// Write WAV file
 		FILE *out = fopen(out_path.c_str(), "wb");
 		if (!out)
 		{
@@ -190,83 +199,25 @@ namespace
 			return false;
 		}
 
-		DATA_LOADER *loader = MemoryLoader_Init(reinterpret_cast<const UINT8 *>(data.data()),
-																						static_cast<UINT32>(data.size()));
-		if (!loader)
-		{
-			std::cerr << "failed to create memory loader" << std::endl;
-			fclose(out);
-			return false;
-		}
-
-		DataLoader_SetPreloadBytes(loader, 0x100);
-		if (DataLoader_Load(loader))
-		{
-			std::cerr << "failed to load vgm data" << std::endl;
-			MemoryLoader_Deinit(loader);
-			fclose(out);
-			return false;
-		}
-
-		if (player.LoadFile(loader))
-		{
-			std::cerr << "failed to load vgm data" << std::endl;
-			MemoryLoader_Deinit(loader);
-			fclose(out);
-			return false;
-		}
-
-		PlayerBase *engine = player.GetPlayer();
-		if (engine && engine->GetPlayerType() == FCC_VGM)
-		{
-			auto *vgmplayer = dynamic_cast<VGMPlayer *>(engine);
-			if (vgmplayer)
-				player.SetLoopCount(vgmplayer->GetModifiedLoopCount(kWavLoops));
-		}
-
-		// Enable Nuked OPN2 with MD1 low-pass filter
-		{
-			PLR_DEV_OPTS devOpts;
-			PlayerBase::InitDeviceOptions(devOpts);
-			devOpts.emuCore[0] = FCC_NUKE;
-			devOpts.coreOpts = kNukedMD1Filter;
-			engine->SetDeviceOptions(PLR_DEV_ID(DEVID_YM2612, 0), devOpts);
-		}
-
-		player.Start();
-
-		unsigned int total_frames = 0;
-		if (engine)
-			total_frames = engine->Tick2Sample(engine->GetTotalPlayTicks(kWavLoops));
-		if (engine && engine->GetLoopTicks())
-			total_frames += kWavSampleRate * kWavFadeSeconds;
-
 		if (!write_wav_header(out, total_frames))
 		{
 			std::cerr << "failed to write wav header" << std::endl;
-			player.Stop();
-			player.UnloadFile();
-			MemoryLoader_Deinit(loader);
 			fclose(out);
 			return false;
 		}
 
-		std::vector<UINT8> packed(sizeof(INT32) * kWavChannels * kWavBufferFrames);
-		while (total_frames)
+		// Convert to little-endian and write
+		std::vector<uint8_t> packed(total_frames * kWavChannels * (kWavBitDepth / 8));
+		for (unsigned int i = 0; i < total_frames * kWavChannels; ++i)
+			pack_int16le(&packed[i * 2], pcm_data[i]);
+
+		if (fwrite(packed.data(), 1, packed.size(), out) != packed.size())
 		{
-			unsigned int cur_frames = (kWavBufferFrames > total_frames) ? total_frames : kWavBufferFrames;
-			std::memset(packed.data(), 0, packed.size());
-			player.Render(cur_frames * ((kWavBitDepth / 8) * kWavChannels), packed.data());
-			frames_to_little_endian(packed.data(), cur_frames);
-			if (!write_frames(out, cur_frames, packed.data()))
-				break;
-			total_frames -= cur_frames;
+			std::cerr << "failed to write wav data" << std::endl;
+			fclose(out);
+			return false;
 		}
 
-		player.Stop();
-		player.UnloadFile();
-		player.UnregisterAllPlayers();
-		MemoryLoader_Deinit(loader);
 		fclose(out);
 		return true;
 	}

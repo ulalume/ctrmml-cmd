@@ -63,6 +63,7 @@ public:
 	bool is_finished() const;
 	const std::string &last_error() const;
 	void set_mute_mask(int chip_id, uint32_t mask);
+	int get_loop_count() const;
 
 private:
 	void handle_error(const char *str);

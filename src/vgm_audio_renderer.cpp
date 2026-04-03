@@ -230,6 +230,11 @@ bool VgmAudioRenderer::is_finished() const
 	return finished;
 }
 
+int VgmAudioRenderer::get_loop_count() const
+{
+	return driver ? driver->get_loop_count() : 0;
+}
+
 const std::string &VgmAudioRenderer::last_error() const
 {
 	return last_error_message;
