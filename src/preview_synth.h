@@ -93,4 +93,5 @@ private:
 	uint32_t psg_tick_counter;
 	uint32_t psg_tick_period; // samples per envelope tick
 	uint32_t age_counter;
+	uint32_t idle_counter;    // samples since last note activity
 };

@@ -56,6 +56,7 @@ void PreviewSynth::init(uint32_t rate)
 	psg_tick_period = rate * 60 / (120 * 48);
 	psg_tick_counter = 0;
 	age_counter = 0;
+	idle_counter = sample_rate * 3; // start idle
 
 	ym2612 = std::make_unique<SoundDevice>();
 	sn76496 = std::make_unique<SoundDevice>();
@@ -441,6 +442,7 @@ void PreviewSynth::note_on(uint8_t midi_note, uint8_t velocity)
 {
 	if (!initialized)
 		return;
+	idle_counter = 0;
 
 	if (mode == 0 && fm_instrument_loaded)
 	{
@@ -532,6 +534,7 @@ void PreviewSynth::note_off(uint8_t midi_note)
 {
 	if (!initialized)
 		return;
+	idle_counter = 0;
 
 	if (mode == 0)
 	{
@@ -598,9 +601,12 @@ void PreviewSynth::all_notes_off()
 
 bool PreviewSynth::is_active() const
 {
-	// Always render when initialized — chip emulators are cheap and
-	// we need to hear FM release envelopes after noteOff.
-	return initialized;
+	if (!initialized)
+		return false;
+	// Stay active for 3 seconds after the last note event to allow
+	// FM release envelopes to fade out, then go idle to avoid
+	// unnecessary CPU usage and potential audio glitches.
+	return idle_counter < sample_rate * 3;
 }
 
 void PreviewSynth::render(WAVE_32BS *output, int frames)
@@ -632,4 +638,7 @@ void PreviewSynth::render(WAVE_32BS *output, int frames)
 		output[i].L += tmp.L;
 		output[i].R += tmp.R;
 	}
+
+	if (idle_counter < sample_rate * 3)
+		idle_counter += frames;
 }
