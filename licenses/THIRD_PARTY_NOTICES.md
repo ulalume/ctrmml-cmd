@@ -6,6 +6,7 @@ ctrmml-cmd is released under the GPL v2 License. Every third-party component kee
 | ----------------------------------------------------------------------------------: | ------------------------------------------------- | ------------------------ |
 |                                      [libvgm](https://github.com/ValleyBell/libvgm) | Per-file mix in upstream repo (see entries below) |                          |
 |                                 [Nuked OPN2](https://github.com/nukeykt/Nuked-OPN2) | LGPL-2.1-or-later                                 | `Nuked-OPN2.LICENCE.txt` |
+|                                            [ymfm](https://github.com/aaronsgiles/ymfm) | BSD-3-Clause                                      | `ymfm.LICENSE.txt`       |
 | [sn76496.c](https://github.com/ValleyBell/libvgm/blob/7cad7836/emu/cores/sn76496.c) | BSD-3-Clause                                      | `sn76496.c.LICENSE.txt`  |
 |                                        [ctrmml](https://github.com/superctr/ctrmml) | GPL v2 License                                    | `ctrmml.COPYING.txt`     |
 |                                         [mmlgui](https://github.com/superctr/mmlgui) | GPL v2 License                                    | `mmlgui.COPYING.txt`     |

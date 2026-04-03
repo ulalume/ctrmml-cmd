@@ -45,6 +45,11 @@ FetchContent_Declare(
   GIT_REPOSITORY https://github.com/ValleyBell/libvgm
   GIT_TAG 0e349256338144205303a1495ddc788a854be1eb
 )
+FetchContent_Declare(
+  ymfm
+  GIT_REPOSITORY https://github.com/aaronsgiles/ymfm
+  GIT_TAG 17decfae857b92ab55fbb30ade2287ace095a381
+)
 
 # libvgm configuration
 if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
@@ -82,6 +87,10 @@ if(WIN32)
 endif()
 
 FetchContent_MakeAvailable(ctrmml libvgm)
+FetchContent_GetProperties(ymfm)
+if(NOT ymfm_POPULATED)
+  FetchContent_Populate(ymfm)
+endif()
 
 if(TARGET ctrmml)
   if(MSVC)
@@ -107,6 +116,7 @@ set(CTRMML_CMD_CORE_SOURCES
   src/vgm_audio_renderer.cpp
   src/vgm_export.cpp
   src/wav_export.cpp
+  src/ymfm_ym2612_device.cpp
   src/ctrmml_cmd.cpp
   src/ctrmml_cmd_c_api.cpp)
 
@@ -116,10 +126,18 @@ set(CTRMML_CMD_INCLUDE_DIRS
   ${libvgm_SOURCE_DIR}
   ${libvgm_SOURCE_DIR}/emu
   ${libvgm_SOURCE_DIR}/utils
-  ${libvgm_SOURCE_DIR}/player)
+  ${libvgm_SOURCE_DIR}/player
+  ${ymfm_SOURCE_DIR}/src)
+
+add_library(ymfm-core STATIC
+  ${ymfm_SOURCE_DIR}/src/ymfm_opn.cpp
+  ${ymfm_SOURCE_DIR}/src/ymfm_adpcm.cpp
+  ${ymfm_SOURCE_DIR}/src/ymfm_ssg.cpp)
+target_include_directories(ymfm-core PUBLIC ${ymfm_SOURCE_DIR}/src)
 
 set(CTRMML_CMD_LINK_LIBS
   ctrmml
+  ymfm-core
   vgm-utils
   vgm-emu
   vgm-player)

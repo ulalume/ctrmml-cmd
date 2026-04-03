@@ -14,6 +14,8 @@
 #include "song.h"
 #include "driver.h"
 
+class YmfmYm2612Device;
+
 class SoundDevice
 {
 public:
@@ -32,10 +34,18 @@ public:
 	void set_mute_mask(uint32_t mask);
 
 private:
+	void reset_device();
+
 	DEV_INFO dev;
 	RESMPL_STATE resmpl;
 	bool dev_init;
 	bool resmpl_init;
+	enum BackendType
+	{
+		BACKEND_NONE = 0,
+		BACKEND_LIBVGM,
+		BACKEND_YMFM,
+	} backend;
 	enum
 	{
 		NONE = 0,
@@ -45,6 +55,7 @@ private:
 	uint32_t sample_rate;
 	uint16_t volume;
 	DEVFUNC_WRITE_A8D8 write_a8d8;
+	std::unique_ptr<YmfmYm2612Device> ymfm_ym2612;
 };
 
 class VgmAudioRenderer : private VGM_Interface
