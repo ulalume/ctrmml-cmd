@@ -5,16 +5,15 @@
 #include <vector>
 #include <string>
 
-#include <emu/EmuStructs.h>
-#include <emu/SoundEmu.h>
-#include <emu/SoundDevs.h>
-#include <emu/Resampler.h>
+#include <resampler/EmuStructs.h>
+#include <resampler/Resampler.h>
 
 #include "vgm.h"
 #include "song.h"
 #include "driver.h"
 
 class YmfmYm2612Device;
+class MameSn76496Device;
 
 class SoundDevice
 {
@@ -36,26 +35,19 @@ public:
 private:
 	void reset_device();
 
-	DEV_INFO dev;
 	RESMPL_STATE resmpl;
 	bool dev_init;
 	bool resmpl_init;
-	enum BackendType
-	{
-		BACKEND_NONE = 0,
-		BACKEND_LIBVGM,
-		BACKEND_YMFM,
-	} backend;
 	enum
 	{
-		NONE = 0,
-		A8D8,
-		P1A8D8,
-	} write_type;
+		CHIP_NONE = 0,
+		CHIP_SN76496,
+		CHIP_YM2612,
+	} chip_type;
 	uint32_t sample_rate;
 	uint16_t volume;
-	DEVFUNC_WRITE_A8D8 write_a8d8;
 	std::unique_ptr<YmfmYm2612Device> ymfm_ym2612;
+	std::unique_ptr<MameSn76496Device> mame_sn76496;
 };
 
 class VgmAudioRenderer : private VGM_Interface

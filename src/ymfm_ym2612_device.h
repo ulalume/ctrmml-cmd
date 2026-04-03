@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <memory>
 
-#include <emu/EmuStructs.h>
+#include <resampler/EmuStructs.h>
 
 class YmfmYm2612Interface;
 class YmfmYm2612Chip;

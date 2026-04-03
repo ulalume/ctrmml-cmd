@@ -3,8 +3,6 @@
 #include <cstdint>
 #include <vector>
 
-#include <emu/EmuStructs.h>
-
 #include "lowpass_filter.h"
 #include "vgm_audio_renderer.h"
 

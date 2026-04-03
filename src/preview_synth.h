@@ -4,8 +4,8 @@
 #include <memory>
 #include <vector>
 
-#include <emu/EmuStructs.h>
-#include <emu/Resampler.h>
+#include <resampler/EmuStructs.h>
+#include <resampler/Resampler.h>
 
 class SoundDevice;
 

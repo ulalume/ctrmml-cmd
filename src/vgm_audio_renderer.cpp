@@ -2,16 +2,21 @@
 #include "input.h"
 #include "platform/md.h"
 #include "ymfm_ym2612_device.h"
-
-#include <emu/EmuCores.h>
-#include <emu/cores/sn764intf.h>
+#include "mame_sn76496_device.h"
 
 #include <stdexcept>
 #include <algorithm>
 
+namespace
+{
+	// VGM chip IDs used as device map keys
+	constexpr int DEVID_SN76496 = 0x00;
+	constexpr int DEVID_YM2612 = 0x02;
+}
+
 SoundDevice::SoundDevice()
-		: dev{}, resmpl{}, dev_init(false), resmpl_init(false), backend(BACKEND_NONE),
-		  write_type(SoundDevice::NONE), sample_rate(0), volume(0x100), write_a8d8(nullptr)
+		: resmpl{}, dev_init(false), resmpl_init(false), chip_type(CHIP_NONE),
+		  sample_rate(0), volume(0x100)
 {
 }
 
@@ -27,16 +32,12 @@ void SoundDevice::reset_device()
 		Resmpl_Deinit(&resmpl);
 		resmpl_init = false;
 	}
-	if (backend == BACKEND_LIBVGM && dev_init)
-		SndEmu_Stop(&dev);
 
 	ymfm_ym2612.reset();
-	dev = {};
+	mame_sn76496.reset();
 	resmpl = {};
 	dev_init = false;
-	backend = BACKEND_NONE;
-	write_type = SoundDevice::NONE;
-	write_a8d8 = nullptr;
+	chip_type = CHIP_NONE;
 }
 
 void SoundDevice::set_default_volume(uint16_t vol)
@@ -56,15 +57,17 @@ void SoundDevice::set_rate(uint32_t rate)
 
 	if (dev_init)
 	{
-		if (backend == BACKEND_LIBVGM)
-		{
-			Resmpl_DevConnect(&resmpl, &dev);
-		}
-		else if (backend == BACKEND_YMFM)
+		if (chip_type == CHIP_YM2612)
 		{
 			resmpl.smpRateSrc = ymfm_ym2612->sample_rate();
 			resmpl.StreamUpdate = &YmfmYm2612Device::stream_update;
 			resmpl.su_DataPtr = ymfm_ym2612.get();
+		}
+		else if (chip_type == CHIP_SN76496)
+		{
+			resmpl.smpRateSrc = mame_sn76496->sample_rate();
+			resmpl.StreamUpdate = &MameSn76496Device::stream_update;
+			resmpl.su_DataPtr = mame_sn76496.get();
 		}
 		Resmpl_SetVals(&resmpl, 0xff, volume, sample_rate);
 		Resmpl_Init(&resmpl);
@@ -76,34 +79,9 @@ void SoundDevice::init_sn76489(uint32_t freq, uint8_t lfsr_w, uint16_t lfsr_t)
 {
 	reset_device();
 
-	DEV_GEN_CFG dev_cfg{};
-	SN76496_CFG sn_cfg{};
-
-	dev_cfg.emuCore = 0;
-	dev_cfg.srMode = DEVRI_SRMODE_NATIVE;
-	dev_cfg.flags = 0x00;
-	dev_cfg.clock = freq;
-	dev_cfg.smplRate = 44100;
-	sn_cfg._genCfg = dev_cfg;
-	sn_cfg.shiftRegWidth = lfsr_w;
-	sn_cfg.noiseTaps = lfsr_t;
-	sn_cfg.negate = 0;
-	sn_cfg.stereo = 0;
-	sn_cfg.clkDiv = 8;
-	sn_cfg.segaPSG = 1;
-	sn_cfg.t6w28_tone = NULL;
-
-	uint8_t status = SndEmu_Start(DEVID_SN76496, (DEV_GEN_CFG *)&sn_cfg, &dev);
-	if (status)
-		throw std::runtime_error("SoundDevice::init_sn76489");
-
-	SndEmu_GetDeviceFunc(dev.devDef, RWF_REGISTER | RWF_WRITE, DEVRW_A8D8, 0, (void **)&write_a8d8);
-	write_type = SoundDevice::A8D8;
-
-	dev.devDef->Reset(dev.dataPtr);
-
+	mame_sn76496 = std::make_unique<MameSn76496Device>(freq, lfsr_w, lfsr_t);
 	dev_init = true;
-	backend = BACKEND_LIBVGM;
+	chip_type = CHIP_SN76496;
 }
 
 void SoundDevice::init_ym2612(uint32_t freq)
@@ -111,34 +89,26 @@ void SoundDevice::init_ym2612(uint32_t freq)
 	reset_device();
 
 	ymfm_ym2612 = std::make_unique<YmfmYm2612Device>(freq);
-	write_type = SoundDevice::P1A8D8;
 	dev_init = true;
-	backend = BACKEND_YMFM;
+	chip_type = CHIP_YM2612;
 }
 
 void SoundDevice::write(uint16_t addr, uint16_t data)
 {
-	switch (write_type)
-	{
-	default:
-		break;
-	case SoundDevice::A8D8:
-		write_a8d8(dev.dataPtr, addr, data);
-		break;
-	}
+	if (chip_type == CHIP_SN76496)
+		mame_sn76496->write(static_cast<uint8_t>(data));
 }
 
 void SoundDevice::write(uint8_t port, uint16_t addr, uint16_t data)
 {
-	switch (write_type)
+	if (chip_type == CHIP_YM2612)
 	{
-	default:
-		write(addr, data);
-		break;
-	case SoundDevice::P1A8D8:
 		ymfm_ym2612->write(static_cast<uint8_t>(port << 1), static_cast<uint8_t>(addr));
 		ymfm_ym2612->write(static_cast<uint8_t>((port << 1) + 1), static_cast<uint8_t>(data));
-		break;
+	}
+	else if (chip_type == CHIP_SN76496)
+	{
+		mame_sn76496->write(static_cast<uint8_t>(data));
 	}
 }
 
@@ -150,14 +120,10 @@ void SoundDevice::get_sample(WAVE_32BS *output, int count)
 
 void SoundDevice::set_mute_mask(uint32_t mask)
 {
-	if (backend == BACKEND_YMFM && ymfm_ym2612)
-	{
+	if (chip_type == CHIP_YM2612 && ymfm_ym2612)
 		ymfm_ym2612->set_mute_mask(mask);
-	}
-	else if (dev_init)
-	{
-		dev.devDef->SetMuteMask(dev.dataPtr, mask);
-	}
+	else if (chip_type == CHIP_SN76496 && mame_sn76496)
+		mame_sn76496->set_mute_mask(mask);
 }
 
 VgmAudioRenderer::VgmAudioRenderer(std::shared_ptr<Song> song, uint32_t start_position, bool log_messages)

@@ -117,6 +117,10 @@ set(CTRMML_CMD_CORE_SOURCES
   src/vgm_export.cpp
   src/wav_export.cpp
   src/ymfm_ym2612_device.cpp
+  src/mame_sn76496_device.cpp
+  src/sn76496/sn76496.c
+  src/resampler/Resampler.c
+  src/resampler/logging.c
   src/ctrmml_cmd.cpp
   src/ctrmml_cmd_c_api.cpp)
 
