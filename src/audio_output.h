@@ -1,7 +1,11 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
 
+#include <emu/EmuStructs.h>
+
+#include "lowpass_filter.h"
 #include "vgm_audio_renderer.h"
 
 class AudioOutput
@@ -21,4 +25,6 @@ private:
 	void *drv;
 	VgmAudioRenderer *renderer;
 	bool running;
+	LowPassFilter lpf;
+	std::vector<WAVE_32BS> scratch;
 };

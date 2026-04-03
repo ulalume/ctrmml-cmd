@@ -1,6 +1,6 @@
 #include "audio_output.h"
 
-#include <vector>
+#include <cstring>
 
 #include <audio/AudioStream.h>
 
@@ -58,6 +58,8 @@ bool AudioOutput::start(VgmAudioRenderer *renderer_in, uint32_t sample_rate)
 		opts->numBitsPerSmpl = 16;
 	}
 
+	lpf.init(sample_rate);
+
 	if (AudioDrv_SetCallback(drv, &AudioOutput::fill_buffer, this) != AERR_OK)
 		return false;
 	if (AudioDrv_Start(drv, 0) != AERR_OK)
@@ -98,7 +100,9 @@ uint32_t AudioOutput::fill(uint32_t bufSize, void *data)
 
 	const uint32_t frame_size = 2 * sizeof(int16_t);
 	uint32_t frames = bufSize / frame_size;
-	std::vector<WAVE_32BS> scratch(frames);
+	if (scratch.size() < frames)
+		scratch.resize(frames);
+	std::memset(scratch.data(), 0, frames * sizeof(WAVE_32BS));
 	int written = renderer->get_sample(scratch.data(), static_cast<int>(frames));
 	if (written < 0)
 		written = 0;
@@ -106,6 +110,7 @@ uint32_t AudioOutput::fill(uint32_t bufSize, void *data)
 	int16_t *out = static_cast<int16_t *>(data);
 	for (int i = 0; i < written; ++i)
 	{
+		lpf.apply(scratch[i].L, scratch[i].R);
 		float l = scratch[i].L * kInvSampleScale;
 		float r = scratch[i].R * kInvSampleScale;
 		if (l > 1.0f)

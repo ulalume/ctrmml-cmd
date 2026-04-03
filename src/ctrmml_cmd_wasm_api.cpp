@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "ctrmml_cmd.h"
+#include "lowpass_filter.h"
 #include "highlight_tracker.h"
 #include "input.h"
 #include "mdslink_tool.h"
@@ -33,6 +34,7 @@ extern "C"
 namespace
 {
 	const float kInvSampleScale = 1.0f / 8388608.0f;
+	LowPassFilter g_lpf;
 
 	CompileResult g_compile;
 	std::unique_ptr<VgmAudioRenderer> g_renderer;
@@ -172,6 +174,7 @@ extern "C" int ctrmml_cmd_wasm_start_playback(uint32_t sample_rate,
 
 		g_renderer = std::make_unique<VgmAudioRenderer>(g_compile.song, start_ticks, false);
 		g_renderer->setup_stream(sample_rate);
+		g_lpf.init(sample_rate);
 	}
 	catch (std::exception &e)
 	{
@@ -239,6 +242,7 @@ extern "C" int ctrmml_cmd_wasm_render_audio(float *output, int frames)
 
 	for (int i = 0; i < written; ++i)
 	{
+		g_lpf.apply(scratch[i].L, scratch[i].R);
 		float l = scratch[i].L * kInvSampleScale;
 		float r = scratch[i].R * kInvSampleScale;
 		if (l > 1.0f) l = 1.0f;
@@ -812,6 +816,16 @@ extern "C" const char *ctrmml_cmd_wasm_get_instrument_data_json(uint16_t ins_id)
 }
 
 // ---------------------------------------------------------------------------
+// Audio low-pass filter
+// ---------------------------------------------------------------------------
+
+extern "C" void ctrmml_cmd_wasm_set_lowpass_filter(int enabled, float cutoff_hz)
+{
+	g_lpf.enabled = (enabled != 0);
+	if (g_lpf.enabled && cutoff_hz > 0.0f)
+		g_lpf.set_cutoff(static_cast<double>(cutoff_hz));
+}
+
 // Preview synth
 // ---------------------------------------------------------------------------
 
@@ -819,6 +833,7 @@ extern "C" void preview_init(uint32_t sample_rate)
 {
 	g_preview = std::make_unique<PreviewSynth>();
 	g_preview->init(sample_rate);
+	g_lpf.init(sample_rate);
 }
 
 extern "C" void preview_deinit()

@@ -57,6 +57,9 @@ extern "C"
 	// Instrument data lookup by ID
 	const char *ctrmml_cmd_wasm_get_instrument_data_json(uint16_t ins_id);
 
+	// Audio low-pass filter (analog output stage emulation)
+	void ctrmml_cmd_wasm_set_lowpass_filter(int enabled, float cutoff_hz);
+
 	// Preview synth — standalone chip emulator for note preview / MIDI
 	void preview_init(uint32_t sample_rate);
 	void preview_deinit();

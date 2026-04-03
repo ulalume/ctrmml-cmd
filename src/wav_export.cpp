@@ -12,6 +12,9 @@
 #include <player/s98player.hpp>
 #include <player/vgmplayer.hpp>
 #include <utils/MemoryLoader.h>
+#include <emu/EmuCores.h>
+#include <emu/SoundDevs.h>
+#include <emu/cores/2612intf.h>
 
 #include "mml_compile.h"
 
@@ -24,6 +27,7 @@ namespace
 	const unsigned int kWavFadeSeconds = 8;
 	const unsigned int kWavLoops = 2;
 	const char *kExtensibleGuidTrailer = "\x00\x00\x00\x00\x10\x00\x80\x00\x00\xAA\x00\x38\x9B\x71";
+	const UINT32 kNukedMD1Filter = OPT_YM2612_TYPE_OPN2C_ASIC | OPT_YM2612_TYPE_OPN2C_DISC;
 
 	void pack_int16le(UINT8 *d, INT16 n)
 	{
@@ -218,6 +222,15 @@ namespace
 			auto *vgmplayer = dynamic_cast<VGMPlayer *>(engine);
 			if (vgmplayer)
 				player.SetLoopCount(vgmplayer->GetModifiedLoopCount(kWavLoops));
+		}
+
+		// Enable Nuked OPN2 with MD1 low-pass filter
+		{
+			PLR_DEV_OPTS devOpts;
+			PlayerBase::InitDeviceOptions(devOpts);
+			devOpts.emuCore[0] = FCC_NUKE;
+			devOpts.coreOpts = kNukedMD1Filter;
+			engine->SetDeviceOptions(PLR_DEV_ID(DEVID_YM2612, 0), devOpts);
 		}
 
 		player.Start();
