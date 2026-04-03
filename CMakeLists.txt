@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Emscripten exception handling — must be set BEFORE FetchContent so that
-# dependent libraries (ctrmml, libvgm) are compiled with the same ABI.
+# dependent libraries (ctrmml) are compiled with the same ABI.
 if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   add_compile_options(-fexceptions)
 endif()
@@ -41,55 +41,24 @@ FetchContent_Declare(
   GIT_TAG 5934530
 )
 FetchContent_Declare(
-  libvgm
-  GIT_REPOSITORY https://github.com/ValleyBell/libvgm
-  GIT_TAG 0e349256338144205303a1495ddc788a854be1eb
-)
-FetchContent_Declare(
   ymfm
   GIT_REPOSITORY https://github.com/aaronsgiles/ymfm
   GIT_TAG 17decfae857b92ab55fbb30ade2287ace095a381
 )
+FetchContent_Declare(
+  miniaudio
+  GIT_REPOSITORY https://github.com/mackron/miniaudio
+  GIT_TAG 0.11.21
+)
 
-# libvgm configuration
-if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
-  set(BUILD_LIBAUDIO OFF CACHE BOOL "" FORCE)
-else()
-  set(BUILD_LIBAUDIO ON CACHE BOOL "" FORCE)
-endif()
-set(BUILD_LIBEMU ON CACHE BOOL "" FORCE)
-set(BUILD_LIBPLAYER ON CACHE BOOL "" FORCE)
-set(BUILD_PLAYER OFF CACHE BOOL "" FORCE)
-set(BUILD_VGM2WAV OFF CACHE BOOL "" FORCE)
-set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(LIBRARY_TYPE "STATIC" CACHE STRING "STATIC" FORCE)
-# trim utils features we don't need
-if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
-  set(UTIL_THREADING OFF CACHE BOOL "" FORCE)
-  set(UTIL_CHARSET_CONV OFF CACHE BOOL "" FORCE)
-else()
-  set(UTIL_THREADING ON CACHE BOOL "" FORCE)
-  set(UTIL_CHARSET_CONV ON CACHE BOOL "" FORCE)
-endif()
-# build only the sound cores required for Mega Drive / Genesis playback
-set(SNDEMU__ALL OFF CACHE BOOL "" FORCE)
-set(SNDEMU_SN76496_ALL OFF CACHE BOOL "" FORCE)
-set(SNDEMU_SN76496_MAME ON CACHE BOOL "" FORCE)
-set(SNDEMU_SN76496_MAXIM OFF CACHE BOOL "" FORCE)
-set(SNDEMU_YM2612_ALL OFF CACHE BOOL "" FORCE)
-set(SNDEMU_YM2612_GPGX OFF CACHE BOOL "" FORCE)
-set(SNDEMU_YM2612_GENS OFF CACHE BOOL "" FORCE)
-set(SNDEMU_YM2612_NUKED ON CACHE BOOL "" FORCE)
-
-if(WIN32)
-  set(UTIL_CHARCNV_ICONV OFF CACHE BOOL "" FORCE)
-  set(UTIL_CHARCNV_WINAPI ON CACHE BOOL "" FORCE)
-endif()
-
-FetchContent_MakeAvailable(ctrmml libvgm)
+FetchContent_MakeAvailable(ctrmml)
 FetchContent_GetProperties(ymfm)
 if(NOT ymfm_POPULATED)
   FetchContent_Populate(ymfm)
+endif()
+FetchContent_GetProperties(miniaudio)
+if(NOT miniaudio_POPULATED)
+  FetchContent_Populate(miniaudio)
 endif()
 
 if(TARGET ctrmml)
@@ -127,10 +96,6 @@ set(CTRMML_CMD_CORE_SOURCES
 set(CTRMML_CMD_INCLUDE_DIRS
   src
   ${ctrmml_SOURCE_DIR}/src
-  ${libvgm_SOURCE_DIR}
-  ${libvgm_SOURCE_DIR}/emu
-  ${libvgm_SOURCE_DIR}/utils
-  ${libvgm_SOURCE_DIR}/player
   ${ymfm_SOURCE_DIR}/src)
 
 add_library(ymfm-core STATIC
@@ -141,10 +106,7 @@ target_include_directories(ymfm-core PUBLIC ${ymfm_SOURCE_DIR}/src)
 
 set(CTRMML_CMD_LINK_LIBS
   ctrmml
-  ymfm-core
-  vgm-utils
-  vgm-emu
-  vgm-player)
+  ymfm-core)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   # ---------- WASM build ----------
@@ -175,7 +137,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
 
   target_include_directories(ctrmml-cmd-lib PUBLIC ${CTRMML_CMD_INCLUDE_DIRS})
   target_link_libraries(ctrmml-cmd-lib PRIVATE ${CTRMML_CMD_LINK_LIBS})
-  target_compile_definitions(ctrmml-cmd-lib PRIVATE -DLOCAL_LIBVGM)
 
   add_executable(ctrmml-cmd-wasm src/ctrmml_cmd_wasm_api.cpp)
   target_link_libraries(ctrmml-cmd-wasm PRIVATE ctrmml-cmd-lib)
@@ -194,7 +155,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   target_link_options(ctrmml-cmd-wasm PRIVATE
     -fexceptions
     "SHELL:-sALLOW_MEMORY_GROWTH=1"
-    "SHELL:-sEXPORTED_FUNCTIONS=_malloc,_free,_ctrmml_cmd_wasm_compile,_ctrmml_cmd_wasm_get_compile_error,_ctrmml_cmd_wasm_check_json,_ctrmml_cmd_wasm_start_playback,_ctrmml_cmd_wasm_stop_playback,_ctrmml_cmd_wasm_is_playing,_ctrmml_cmd_wasm_render_audio,_ctrmml_cmd_wasm_set_mute_mask,_ctrmml_cmd_wasm_get_player_ticks,_ctrmml_cmd_wasm_get_highlights,_ctrmml_cmd_wasm_export_vgm,_ctrmml_cmd_wasm_export_wav,_ctrmml_cmd_wasm_quickrom,_ctrmml_cmd_wasm_mdslink,_ctrmml_cmd_wasm_get_last_error,_ctrmml_cmd_wasm_get_track_data_json,_ctrmml_cmd_wasm_find_cursor_tick,_ctrmml_cmd_wasm_find_cursor_channel_json,_ctrmml_cmd_wasm_get_instrument_data_json,_preview_init,_preview_deinit,_preview_load_fm,_preview_load_psg,_preview_set_mode,_preview_note_on,_preview_note_off,_preview_all_notes_off"
+    "SHELL:-sEXPORTED_FUNCTIONS=_malloc,_free,_ctrmml_cmd_wasm_compile,_ctrmml_cmd_wasm_get_compile_error,_ctrmml_cmd_wasm_check_json,_ctrmml_cmd_wasm_start_playback,_ctrmml_cmd_wasm_stop_playback,_ctrmml_cmd_wasm_is_playing,_ctrmml_cmd_wasm_render_audio,_ctrmml_cmd_wasm_set_mute_mask,_ctrmml_cmd_wasm_set_lowpass_filter,_ctrmml_cmd_wasm_get_player_ticks,_ctrmml_cmd_wasm_get_highlights,_ctrmml_cmd_wasm_export_vgm,_ctrmml_cmd_wasm_export_wav,_ctrmml_cmd_wasm_quickrom,_ctrmml_cmd_wasm_mdslink,_ctrmml_cmd_wasm_get_last_error,_ctrmml_cmd_wasm_get_track_data_json,_ctrmml_cmd_wasm_find_cursor_tick,_ctrmml_cmd_wasm_find_cursor_channel_json,_ctrmml_cmd_wasm_get_instrument_data_json,_preview_init,_preview_deinit,_preview_load_fm,_preview_load_psg,_preview_set_mode,_preview_note_on,_preview_note_off,_preview_all_notes_off"
     "SHELL:-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,stringToUTF8,lengthBytesUTF8,UTF8ToString,HEAPF32,HEAPU32,FS"
     "SHELL:-sENVIRONMENT=web"
     "SHELL:-sMODULARIZE=1"
@@ -210,9 +171,8 @@ else()
 
   target_include_directories(ctrmml-cmd-lib PUBLIC
     ${CTRMML_CMD_INCLUDE_DIRS}
-    ${libvgm_SOURCE_DIR}/audio)
-  target_link_libraries(ctrmml-cmd-lib PRIVATE ${CTRMML_CMD_LINK_LIBS} vgm-audio)
-  target_compile_definitions(ctrmml-cmd-lib PRIVATE -DLOCAL_LIBVGM)
+    ${miniaudio_SOURCE_DIR})
+  target_link_libraries(ctrmml-cmd-lib PRIVATE ${CTRMML_CMD_LINK_LIBS})
 
   if(MSVC)
     target_compile_options(ctrmml-cmd-lib PRIVATE /FIstring)
@@ -221,7 +181,13 @@ else()
   add_executable(ctrmml-cmd src/main.cpp)
   target_link_libraries(ctrmml-cmd PRIVATE ctrmml-cmd-lib)
 
-  if(WIN32)
+  if(APPLE)
+    find_library(COREAUDIO_FRAMEWORK CoreAudio)
+    find_library(AUDIOUNIT_FRAMEWORK AudioUnit)
+    find_library(COREFOUNDATION_FRAMEWORK CoreFoundation)
+    target_link_libraries(ctrmml-cmd PRIVATE
+      ${COREAUDIO_FRAMEWORK} ${AUDIOUNIT_FRAMEWORK} ${COREFOUNDATION_FRAMEWORK})
+  elseif(WIN32)
     target_link_libraries(ctrmml-cmd PRIVATE winmm ole32 dsound uuid)
   endif()
 endif()

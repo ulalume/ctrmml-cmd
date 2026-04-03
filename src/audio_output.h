@@ -6,6 +6,8 @@
 #include "lowpass_filter.h"
 #include "vgm_audio_renderer.h"
 
+struct ma_device;
+
 class AudioOutput
 {
 public:
@@ -17,10 +19,10 @@ public:
 	bool is_running() const;
 
 private:
-	static uint32_t fill_buffer(void *drvStruct, void *userParam, uint32_t bufSize, void *data);
-	uint32_t fill(uint32_t bufSize, void *data);
+	static void data_callback(ma_device *device, void *output, const void *input, uint32_t frame_count);
+	void fill(int16_t *output, uint32_t frames);
 
-	void *drv;
+	ma_device *device;
 	VgmAudioRenderer *renderer;
 	bool running;
 	LowPassFilter lpf;

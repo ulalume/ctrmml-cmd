@@ -206,16 +206,30 @@ namespace
 			return false;
 		}
 
-		// Convert to little-endian and write
-		std::vector<uint8_t> packed(total_frames * kWavChannels * (kWavBitDepth / 8));
-		for (unsigned int i = 0; i < total_frames * kWavChannels; ++i)
-			pack_int16le(&packed[i * 2], pcm_data[i]);
-
-		if (fwrite(packed.data(), 1, packed.size(), out) != packed.size())
+		// Write PCM data in chunks (little-endian conversion)
 		{
-			std::cerr << "failed to write wav data" << std::endl;
-			fclose(out);
-			return false;
+			const unsigned int chunk_samples = kWavBufferFrames * kWavChannels;
+			uint8_t chunk_buf[chunk_samples * (kWavBitDepth / 8)];
+			unsigned int remaining = total_frames * kWavChannels;
+			unsigned int pos = 0;
+			bool write_ok = true;
+
+			while (remaining > 0 && write_ok)
+			{
+				unsigned int n = std::min(remaining, chunk_samples);
+				for (unsigned int i = 0; i < n; ++i)
+					pack_int16le(&chunk_buf[i * 2], pcm_data[pos + i]);
+				write_ok = (fwrite(chunk_buf, 2, n, out) == n);
+				pos += n;
+				remaining -= n;
+			}
+
+			if (!write_ok)
+			{
+				std::cerr << "failed to write wav data" << std::endl;
+				fclose(out);
+				return false;
+			}
 		}
 
 		fclose(out);

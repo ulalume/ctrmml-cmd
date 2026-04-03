@@ -61,7 +61,7 @@ void MameSn76496Device::write(uint8_t data)
 	if (!chip_ptr || !devDef_SN76496_MAME.rwFuncs)
 		return;
 	// rwFuncs[0] is the A8D8 write function (sn76496_w_mame)
-	auto write_fn = (void (*)(void *, UINT8, UINT8))devDef_SN76496_MAME.rwFuncs[0].funcPtr;
+	auto write_fn = reinterpret_cast<void (*)(void *, UINT8, UINT8)>(devDef_SN76496_MAME.rwFuncs[0].funcPtr);
 	if (write_fn)
 		write_fn(chip_ptr, SN76496_W_REG, data);
 }

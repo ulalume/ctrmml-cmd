@@ -20,17 +20,6 @@
 #include "vgm_export.h"
 #include "wav_export.h"
 
-#ifdef __EMSCRIPTEN__
-// Stubs for libvgm charset conversion (not needed in WASM).
-#include <utils/StrUtils.h>
-extern "C"
-{
-	UINT8 CPConv_Init(CPCONV **, const char *, const char *) { return 0xFF; }
-	void CPConv_Deinit(CPCONV *) {}
-	UINT8 CPConv_StrConvert(CPCONV *, size_t *, char **, size_t, const char *) { return 0xFF; }
-}
-#endif
-
 namespace
 {
 	const float kInvSampleScale = 1.0f / 8388608.0f;

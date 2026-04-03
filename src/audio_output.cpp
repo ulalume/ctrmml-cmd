@@ -1,8 +1,9 @@
+#define MINIAUDIO_IMPLEMENTATION
 #include "audio_output.h"
 
 #include <cstring>
 
-#include <audio/AudioStream.h>
+#include <miniaudio.h>
 
 namespace
 {
@@ -10,7 +11,7 @@ namespace
 }
 
 AudioOutput::AudioOutput()
-		: drv(nullptr), renderer(nullptr), running(false)
+		: device(nullptr), renderer(nullptr), running(false)
 {
 }
 
@@ -28,42 +29,31 @@ bool AudioOutput::start(VgmAudioRenderer *renderer_in, uint32_t sample_rate)
 	if (!renderer)
 		return false;
 
-	if (Audio_Init() != AERR_OK)
-		return false;
+	device = new ma_device;
 
-	UINT32 driver_count = Audio_GetDriverCount();
-	UINT32 driver_id = 0xffffffffu;
-	for (UINT32 i = 0; i < driver_count; ++i)
+	ma_device_config config = ma_device_config_init(ma_device_type_playback);
+	config.playback.format = ma_format_s16;
+	config.playback.channels = 2;
+	config.sampleRate = sample_rate;
+	config.dataCallback = &AudioOutput::data_callback;
+	config.pUserData = this;
+
+	if (ma_device_init(nullptr, &config, device) != MA_SUCCESS)
 	{
-		AUDDRV_INFO *info = nullptr;
-		if (Audio_GetDriverInfo(i, &info) != AERR_OK || !info)
-			continue;
-		if (info->drvType == ADRVTYPE_OUT)
-		{
-			driver_id = i;
-			break;
-		}
-	}
-	if (driver_id == 0xffffffffu)
+		delete device;
+		device = nullptr;
 		return false;
-
-	if (AudioDrv_Init(driver_id, &drv) != AERR_OK || !drv)
-		return false;
-
-	AUDIO_OPTS *opts = AudioDrv_GetOptions(drv);
-	if (opts)
-	{
-		opts->sampleRate = sample_rate;
-		opts->numChannels = 2;
-		opts->numBitsPerSmpl = 16;
 	}
 
 	lpf.init(sample_rate);
 
-	if (AudioDrv_SetCallback(drv, &AudioOutput::fill_buffer, this) != AERR_OK)
+	if (ma_device_start(device) != MA_SUCCESS)
+	{
+		ma_device_uninit(device);
+		delete device;
+		device = nullptr;
 		return false;
-	if (AudioDrv_Start(drv, 0) != AERR_OK)
-		return false;
+	}
 
 	running = true;
 	return true;
@@ -73,10 +63,10 @@ void AudioOutput::stop()
 {
 	if (!running)
 		return;
-	AudioDrv_Stop(drv);
-	AudioDrv_Deinit(&drv);
-	Audio_Deinit();
-	drv = nullptr;
+	ma_device_stop(device);
+	ma_device_uninit(device);
+	delete device;
+	device = nullptr;
 	running = false;
 }
 
@@ -85,21 +75,26 @@ bool AudioOutput::is_running() const
 	return running;
 }
 
-uint32_t AudioOutput::fill_buffer(void *drvStruct, void *userParam, uint32_t bufSize, void *data)
+void AudioOutput::data_callback(ma_device *dev, void *output, const void *input, uint32_t frame_count)
 {
-	(void)drvStruct;
-	if (!userParam)
-		return 0;
-	return static_cast<AudioOutput *>(userParam)->fill(bufSize, data);
+	(void)input;
+	auto *self = static_cast<AudioOutput *>(dev->pUserData);
+	if (!self)
+	{
+		std::memset(output, 0, frame_count * 2 * sizeof(int16_t));
+		return;
+	}
+	self->fill(static_cast<int16_t *>(output), frame_count);
 }
 
-uint32_t AudioOutput::fill(uint32_t bufSize, void *data)
+void AudioOutput::fill(int16_t *output, uint32_t frames)
 {
-	if (!renderer || !data || bufSize == 0)
-		return 0;
+	if (!renderer || frames == 0)
+	{
+		std::memset(output, 0, frames * 2 * sizeof(int16_t));
+		return;
+	}
 
-	const uint32_t frame_size = 2 * sizeof(int16_t);
-	uint32_t frames = bufSize / frame_size;
 	if (scratch.size() < frames)
 		scratch.resize(frames);
 	std::memset(scratch.data(), 0, frames * sizeof(WAVE_32BS));
@@ -107,7 +102,6 @@ uint32_t AudioOutput::fill(uint32_t bufSize, void *data)
 	if (written < 0)
 		written = 0;
 
-	int16_t *out = static_cast<int16_t *>(data);
 	for (int i = 0; i < written; ++i)
 	{
 		lpf.apply(scratch[i].L, scratch[i].R);
@@ -121,9 +115,11 @@ uint32_t AudioOutput::fill(uint32_t bufSize, void *data)
 			r = 1.0f;
 		if (r < -1.0f)
 			r = -1.0f;
-		out[i * 2 + 0] = static_cast<int16_t>(l * 32767.0f);
-		out[i * 2 + 1] = static_cast<int16_t>(r * 32767.0f);
+		output[i * 2 + 0] = static_cast<int16_t>(l * 32767.0f);
+		output[i * 2 + 1] = static_cast<int16_t>(r * 32767.0f);
 	}
 
-	return static_cast<uint32_t>(written) * frame_size;
+	// Zero remaining frames if renderer produced fewer
+	if (static_cast<uint32_t>(written) < frames)
+		std::memset(&output[written * 2], 0, (frames - written) * 2 * sizeof(int16_t));
 }
