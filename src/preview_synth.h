@@ -26,6 +26,9 @@ public:
 	// Set mode: 0=FM, 1=PSG tone, 2=PSG noise (mode 0), 3=PSG noise (mode 1/white)
 	void set_mode(int mode);
 
+	// Set operator mask for FM key-on (4 bits: bit0=OP1..bit3=OP4, default 0x0f=all)
+	void set_fm_op_mask(uint8_t mask);
+
 	// Note on/off (MIDI note number, 0-127)
 	void note_on(uint8_t midi_note, uint8_t velocity);
 	void note_off(uint8_t midi_note);
@@ -73,6 +76,7 @@ private:
 	uint8_t fm_instrument[30];
 	bool fm_instrument_loaded;
 	int fm_transpose;
+	uint8_t fm_op_mask; // 4-bit operator mask for key-on (bit0=OP1..bit3=OP4)
 
 	// PSG state
 	struct PsgVoice

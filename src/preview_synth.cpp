@@ -31,7 +31,7 @@ static const uint32_t SN76496_CLOCK = 3579545;
 
 PreviewSynth::PreviewSynth()
 	: initialized(false), mode(0),
-	  fm_instrument_loaded(false), fm_transpose(0),
+	  fm_instrument_loaded(false), fm_transpose(0), fm_op_mask(0x0f),
 	  psg_envelope_loaded(false),
 	  sample_rate(44100), psg_tick_counter(0), psg_tick_period(459),
 	  age_counter(0)
@@ -190,12 +190,16 @@ void PreviewSynth::fm_set_volume(int ch, uint8_t velocity)
 	}
 }
 
+void PreviewSynth::set_fm_op_mask(uint8_t mask)
+{
+	fm_op_mask = mask & 0x0f;
+}
+
 void PreviewSynth::fm_key_on(int ch)
 {
 	uint8_t port = ch / 3;
 	uint8_t id = ch % 3;
-	// Key on all 4 operators
-	fm_write(0, 0x28, 0xf0 | id | (port << 2));
+	fm_write(0, 0x28, (fm_op_mask << 4) | id | (port << 2));
 }
 
 void PreviewSynth::fm_key_off(int ch)

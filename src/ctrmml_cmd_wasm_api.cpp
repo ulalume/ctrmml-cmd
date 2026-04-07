@@ -860,6 +860,12 @@ extern "C" void preview_note_off(uint8_t midi_note)
 		g_preview->note_off(midi_note);
 }
 
+extern "C" void preview_set_fm_op_mask(uint8_t mask)
+{
+	if (g_preview)
+		g_preview->set_fm_op_mask(mask);
+}
+
 extern "C" void preview_all_notes_off()
 {
 	if (g_preview)
