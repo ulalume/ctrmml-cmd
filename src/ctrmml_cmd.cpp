@@ -209,8 +209,9 @@ namespace
 				warning.message = message;
 				warning.path = path.empty() ? fallback_path : path;
 				warning.line = line_no;
-				// operator<< outputs 0-indexed column; JSON consumers expect 1-indexed
-				warning.col = col + 1;
+				// operator<< outputs 0-indexed column, but the parser has already
+				// advanced past the character, so the value is effectively 1-indexed.
+				warning.col = col;
 				warnings.push_back(warning);
 				skip_next = true;
 				continue;
