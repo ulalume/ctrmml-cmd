@@ -34,12 +34,13 @@ PreviewSynth::PreviewSynth()
 	  fm_instrument_loaded(false), fm_transpose(0), fm_op_mask(0x0f),
 	  psg_envelope_loaded(false),
 	  sample_rate(44100), psg_tick_counter(0), psg_tick_period(459),
-	  age_counter(0)
+	  age_counter(0), idle_counter(0)
 {
 	std::memset(fm_voices, 0, sizeof(fm_voices));
 	std::memset(fm_instrument, 0, sizeof(fm_instrument));
 	std::memset(psg_voices, 0, sizeof(psg_voices));
 	std::memset(&psg_noise_voice, 0, sizeof(psg_noise_voice));
+	std::memset(held_notes, 0, sizeof(held_notes));
 }
 
 PreviewSynth::~PreviewSynth()
@@ -447,6 +448,8 @@ void PreviewSynth::note_on(uint8_t midi_note, uint8_t velocity)
 	if (!initialized)
 		return;
 	idle_counter = 0;
+	if (midi_note < 128)
+		held_notes[midi_note] = true;
 
 	if (mode == 0 && fm_instrument_loaded)
 	{
@@ -539,6 +542,8 @@ void PreviewSynth::note_off(uint8_t midi_note)
 	if (!initialized)
 		return;
 	idle_counter = 0;
+	if (midi_note < 128)
+		held_notes[midi_note] = false;
 
 	if (mode == 0)
 	{
@@ -577,6 +582,7 @@ void PreviewSynth::all_notes_off()
 {
 	if (!initialized)
 		return;
+	std::memset(held_notes, 0, sizeof(held_notes));
 
 	for (int i = 0; i < 6; i++)
 	{
@@ -607,9 +613,11 @@ bool PreviewSynth::is_active() const
 {
 	if (!initialized)
 		return false;
-	// Stay active for 3 seconds after the last note event to allow
-	// FM release envelopes to fade out, then go idle to avoid
-	// unnecessary CPU usage and potential audio glitches.
+	// Stay active while any note is held, then for 3 seconds after
+	// the last note-off to allow FM release envelopes to fade out.
+	for (int i = 0; i < 128; i++)
+		if (held_notes[i])
+			return true;
 	return idle_counter < sample_rate * 3;
 }
 
@@ -643,6 +651,18 @@ void PreviewSynth::render(WAVE_32BS *output, int frames)
 		output[i].R += tmp.R;
 	}
 
-	if (idle_counter < sample_rate * 3)
+	// Only count idle time after all notes are released
+	bool any_held = false;
+	for (int i = 0; i < 128; i++)
+	{
+		if (held_notes[i])
+		{
+			any_held = true;
+			break;
+		}
+	}
+	if (any_held)
+		idle_counter = 0;
+	else if (idle_counter < sample_rate * 3)
 		idle_counter += frames;
 }
