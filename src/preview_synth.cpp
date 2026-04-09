@@ -57,7 +57,7 @@ void PreviewSynth::init(uint32_t rate)
 	psg_tick_period = rate * 60 / (120 * 48);
 	psg_tick_counter = 0;
 	age_counter = 0;
-	idle_counter = sample_rate * 3; // start idle
+	idle_counter = sample_rate * 12; // start idle
 
 	ym2612 = std::make_unique<SoundDevice>();
 	sn76496 = std::make_unique<SoundDevice>();
@@ -618,7 +618,7 @@ bool PreviewSynth::is_active() const
 	for (int i = 0; i < 128; i++)
 		if (held_notes[i])
 			return true;
-	return idle_counter < sample_rate * 3;
+	return idle_counter < sample_rate * 12;
 }
 
 void PreviewSynth::render(WAVE_32BS *output, int frames)
@@ -663,6 +663,6 @@ void PreviewSynth::render(WAVE_32BS *output, int frames)
 	}
 	if (any_held)
 		idle_counter = 0;
-	else if (idle_counter < sample_rate * 3)
+	else if (idle_counter < sample_rate * 12)
 		idle_counter += frames;
 }
