@@ -331,8 +331,9 @@ void PreviewSynth::psg_update_envelopes()
 			continue;
 		}
 
-		// Match upstream: env_delay is the full data byte. Process when < 0x20.
-		if (v.env_delay >= 0x20)
+		// Match upstream: after key off, PSG envelopes advance every tick.
+		// Otherwise env_delay counts down in 0x10 steps until it reaches < 0x20.
+		if (v.env_delay >= 0x20 && !v.env_keyoff)
 		{
 			v.env_delay -= 0x10;
 			continue;
@@ -390,7 +391,7 @@ void PreviewSynth::psg_update_envelopes()
 			return;
 		}
 
-		if (v.env_delay >= 0x20)
+		if (v.env_delay >= 0x20 && !v.env_keyoff)
 		{
 			v.env_delay -= 0x10;
 			return;
