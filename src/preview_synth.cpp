@@ -570,7 +570,7 @@ void PreviewSynth::note_off(uint8_t midi_note)
 			}
 		}
 	}
-	else if (mode == 2 || mode == 3)
+	else if (mode == 2 || mode == 3 || mode == 4)
 	{
 		if (psg_noise_voice.active && psg_noise_voice.midi_note == midi_note)
 		{
