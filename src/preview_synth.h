@@ -23,7 +23,8 @@ public:
 	// Load PSG envelope from compiled MDSDRV binary
 	void load_psg(const uint8_t *data, int len);
 
-	// Set mode: 0=FM, 1=PSG tone, 2=PSG noise (mode 0), 3=PSG noise (mode 1/white)
+	// Set mode: 0=FM, 1=PSG tone, 2=PSG noise (mode 0),
+	//           3=PSG noise (mode 1/white), 4=PSG noise (mode 2/periodic)
 	void set_mode(int mode);
 
 	// Set operator mask for FM key-on (4 bits: bit0=OP1..bit3=OP4, default 0x0f=all)
@@ -62,7 +63,8 @@ private:
 	std::unique_ptr<SoundDevice> sn76496;
 	bool initialized;
 
-	// Current mode: 0=FM, 1=PSG tone, 2=PSG noise(mode0), 3=PSG noise(mode1/white)
+	// Current mode: 0=FM, 1=PSG tone, 2=PSG noise(mode0),
+	//               3=PSG noise(mode1/white), 4=PSG noise(mode2/periodic)
 	int mode;
 
 	// FM state

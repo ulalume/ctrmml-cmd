@@ -499,7 +499,7 @@ void PreviewSynth::note_on(uint8_t midi_note, uint8_t velocity)
 		psg_set_pitch(ch, midi_note);
 		psg_set_volume(ch, 15);
 	}
-	else if ((mode == 2 || mode == 3) && psg_envelope_loaded)
+	else if ((mode == 2 || mode == 3 || mode == 4) && psg_envelope_loaded)
 	{
 		// PSG noise mode (ch3)
 		// Stop existing noise
@@ -527,9 +527,9 @@ void PreviewSynth::note_on(uint8_t midi_note, uint8_t velocity)
 		}
 		else
 		{
-			// Noise mode 1 (WHITE): use ch2's frequency for noise pitch.
-			// Set register 6 = 0x07 (white noise + ch2 freq source)
-			psg_write(0x80 | (3 << 5) | 0x07);
+			// Noise mode 1/2: use ch2's frequency for noise pitch.
+			// mode 3 = white noise + tone 3 source, mode 4 = periodic noise + tone 3 source
+			psg_write(0x80 | (3 << 5) | (mode == 4 ? 0x03 : 0x07));
 			// Write the note pitch to ch2 (tone channel used as noise freq source)
 			psg_set_pitch(2, midi_note);
 		}
