@@ -97,8 +97,11 @@ Builds a native CLI using FetchContent to obtain ctrmml/libvgm.
 `assets/template.bin` is embedded into the executable at build time.
 
 ```sh
-cmake -S . -B build
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
+# wasm
+emcmake cmake -S . -B build-wasm -DCMAKE_BUILD_TYPE=Release
+cmake --build build-wasm
 ```
 
 ## External
