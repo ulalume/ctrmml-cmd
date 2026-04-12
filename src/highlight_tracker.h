@@ -52,6 +52,7 @@ private:
 	bool loop_hook() override;
 
 	bool slur_flag;
+	bool last_was_rest = false;
 };
 
 std::vector<HighlightPosition> collect_highlights(

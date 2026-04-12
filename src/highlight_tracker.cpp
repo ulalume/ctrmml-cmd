@@ -26,10 +26,37 @@ void TrackInfoGenerator::write_event()
 	if ((event.type == Event::NOTE || event.type == Event::TIE || event.type == Event::REST) &&
 			(on_time || off_time))
 	{
+		// Merge TIE into the preceding event
+		if (event.type == Event::TIE && !events.empty())
+		{
+			auto &prev = events.rbegin()->second;
+			if (last_was_rest)
+			{
+				// REST + TIE: keep on_time=0 so piano roll won't draw it
+				prev.off_time += on_time + off_time;
+			}
+			else
+			{
+				// NOTE + TIE: extend sounding duration
+				prev.on_time += prev.off_time + on_time;
+				prev.off_time = off_time;
+			}
+			// Append references so collect_highlights covers the tie token
+			auto refs = get_references();
+			if (get_var(Event::DRUM_MODE))
+				refs.push_back(reference);
+			prev.references.insert(prev.references.end(), refs.begin(), refs.end());
+
+			slur_flag = false;
+			return;
+		}
+
+		last_was_rest = (event.type == Event::REST);
+
 		ExtEvent ext;
 		ext.note = event.param;
 		ext.on_time = on_time;
-		ext.is_tie = (event.type == Event::TIE);
+		ext.is_tie = false;
 		ext.is_slur = slur_flag;
 		ext.off_time = off_time;
 		ext.volume = get_var(Event::VOL_FINE);
