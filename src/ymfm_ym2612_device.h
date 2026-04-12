@@ -26,6 +26,7 @@ private:
 	uint32_t clock;
 	uint32_t mute_mask;
 	uint8_t port0_address;
+	uint8_t key_state[8]; // operator key-on state per channel slot (indexed by 0x28 ch field)
 	std::unique_ptr<YmfmYm2612Interface> interface;
 	std::unique_ptr<YmfmYm2612Chip> chip;
 };

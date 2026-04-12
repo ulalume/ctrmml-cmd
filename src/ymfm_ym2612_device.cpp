@@ -56,7 +56,7 @@ public:
 };
 
 YmfmYm2612Device::YmfmYm2612Device(uint32_t clock_in)
-	: clock(clock_in), mute_mask(0), port0_address(0),
+	: clock(clock_in), mute_mask(0), port0_address(0), key_state{},
 	  interface(std::make_unique<YmfmYm2612Interface>()),
 	  chip(std::make_unique<YmfmYm2612Chip>(*interface))
 {
@@ -73,6 +73,7 @@ uint32_t YmfmYm2612Device::sample_rate() const
 void YmfmYm2612Device::reset()
 {
 	chip->reset();
+	std::fill(std::begin(key_state), std::end(key_state), 0);
 }
 
 void YmfmYm2612Device::write(uint8_t offset, uint8_t data)
@@ -88,22 +89,26 @@ void YmfmYm2612Device::write(uint8_t offset, uint8_t data)
 		// Bits [2:0] = channel (0-2 for port 0, 4-6 for port 1)
 		// Bits [7:4] = operator enable mask
 		const uint8_t ch_raw = data & 0x07;
-		const uint8_t operators = data & 0xF0;
+		const uint8_t new_ops = data & 0xF0;
+		const uint8_t prev_ops = key_state[ch_raw & 0x07];
 
-		if (operators != 0)
+		// Find operators that are being newly keyed on (0→1 transition).
+		// Operators already on must not be disturbed (FM3 SP mode).
+		const uint8_t rising = new_ops & ~prev_ops;
+
+		if (rising != 0)
 		{
-			// Force key-off and clock one sample before any key-on.
-			// ymfm processes register writes immediately, so if key-off
-			// and key-on both land between generate() calls, the engine
-			// only sees the final state (key on) and m_key_state never
-			// transitions 1->0->1 — the envelope never restarts.
-			// Inserting a clock cycle lets the envelope observe the off
-			// state, ensuring a clean attack on the subsequent key-on.
+			// Force key-off only for the operators about to be keyed on,
+			// while preserving any operators that are already sounding.
+			// This lets ymfm see a 1→0→1 transition on just the new
+			// operators so their envelopes restart cleanly.
 			chip->write(0, 0x28);
-			chip->write(1, ch_raw); // key-off (operators = 0)
+			chip->write(1, (prev_ops & ~rising) | ch_raw);
 			YmfmYm2612Chip::output_data dummy;
 			chip->generate(&dummy, 1);
 		}
+
+		key_state[ch_raw & 0x07] = new_ops;
 	}
 
 	chip->write(offset, data);
