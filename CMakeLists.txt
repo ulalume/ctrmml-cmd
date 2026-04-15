@@ -87,11 +87,19 @@ set(CTRMML_CMD_CORE_SOURCES
   src/wav_export.cpp
   src/ymfm_ym2612_device.cpp
   src/mame_sn76496_device.cpp
-  src/sn76496/sn76496.c
-  src/resampler/Resampler.c
-  src/resampler/logging.c
   src/ctrmml_cmd.cpp
   src/ctrmml_cmd_c_api.cpp)
+
+# Keep the C sources in their own STATIC library so the project-wide
+# CMAKE_CXX_STANDARD does not leak C++ flags onto C compilations. MSBuild
+# applies /std:c++17 across mixed-language targets, which causes MSVC's
+# corecrt headers to drag yvals_core.h into the C translation unit and
+# fail with STL1003 ("Unexpected compiler, expected C++ compiler").
+add_library(ctrmml-cmd-csources STATIC
+  src/sn76496/sn76496.c
+  src/resampler/Resampler.c
+  src/resampler/logging.c)
+target_include_directories(ctrmml-cmd-csources PUBLIC src)
 
 set(CTRMML_CMD_INCLUDE_DIRS
   src
@@ -107,7 +115,8 @@ target_include_directories(ymfm-core PUBLIC ${ymfm_SOURCE_DIR}/src)
 
 set(CTRMML_CMD_LINK_LIBS
   ctrmml
-  ymfm-core)
+  ymfm-core
+  ctrmml-cmd-csources)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   # ---------- WASM build ----------
