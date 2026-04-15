@@ -4,8 +4,14 @@
 #include <stdexcept>
 
 #include <resampler/EmuStructs.h>
+// These headers come from the libvgm C sources and lack extern "C" guards.
+// MSVC mangles unguarded extern globals as C++ symbols, which then fail to
+// link against the C compilation unit's unmangled symbols. Wrap the include
+// to give them C linkage.
+extern "C" {
 #include "sn76496/sn764intf.h"
 #include "sn76496/sn76496.h"
+}
 
 MameSn76496Device::MameSn76496Device(uint32_t clock, uint8_t lfsr_w, uint16_t lfsr_t)
 	: rate(0), chip_ptr(nullptr)
