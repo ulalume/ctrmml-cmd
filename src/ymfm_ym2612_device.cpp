@@ -1,5 +1,6 @@
 #include "ymfm_ym2612_device.h"
 
+#include <algorithm>
 #include <ymfm_opn.h>
 
 namespace

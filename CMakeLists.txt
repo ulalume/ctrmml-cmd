@@ -101,7 +101,8 @@ set(CTRMML_CMD_INCLUDE_DIRS
 add_library(ymfm-core STATIC
   ${ymfm_SOURCE_DIR}/src/ymfm_opn.cpp
   ${ymfm_SOURCE_DIR}/src/ymfm_adpcm.cpp
-  ${ymfm_SOURCE_DIR}/src/ymfm_ssg.cpp)
+  ${ymfm_SOURCE_DIR}/src/ymfm_ssg.cpp
+  src/ymfm_explicit_inst.cpp)
 target_include_directories(ymfm-core PUBLIC ${ymfm_SOURCE_DIR}/src)
 
 set(CTRMML_CMD_LINK_LIBS
