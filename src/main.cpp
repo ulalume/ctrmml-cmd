@@ -82,6 +82,7 @@ namespace
 							<< "  ctrmml-cmd play <file> [--start line:col] [--follow]\n"
 							<< "  ctrmml-cmd stop\n"
 							<< "  ctrmml-cmd check [--json] <file>\n"
+							<< "  ctrmml-cmd find-cursor-tick [--stdin --path <path>] [--line N --col M] <file>\n"
 							<< "  ctrmml-cmd mdslink [options] <input files...>\n"
 							<< "  ctrmml-cmd quickrom [--out rom.bin] <input files...>\n"
 							<< "  ctrmml-cmd export <file> --vgm|--wav [--out path]\n";
@@ -220,6 +221,80 @@ int main(int argc, char **argv)
 			std::cerr << result.error << std::endl;
 			return 1;
 		}
+		return 0;
+	}
+
+	if (cmd == "find-cursor-tick")
+	{
+		// Compile the source then report the cursor's playback tick at
+		// (line, col), plus the song's PPQN. Output is always JSON:
+		//   {"cursor_tick": <int>, "ppqn": <uint>}
+		// or
+		//   {"error": "<message>"}
+		// The cursor_tick value is -1 when find_cursor_tick can't map
+		// the position to any compiled event (e.g. cursor in a comment
+		// or outside any track).
+		//
+		// Line and column are 0-based, matching the WASM API
+		// (ctrmml_cmd_wasm_find_cursor_tick).
+		bool use_stdin = false;
+		std::string display_path;
+		std::string target_file;
+		uint32_t line = 0;
+		uint32_t col = 0;
+		for (int i = 2; i < argc; ++i)
+		{
+			std::string arg = argv[i];
+			if (arg == "--path" && i + 1 < argc)
+				display_path = argv[++i];
+			else if (arg == "--stdin" || arg == "-")
+				use_stdin = true;
+			else if (arg == "--line" && i + 1 < argc)
+				line = static_cast<uint32_t>(std::stoul(argv[++i]));
+			else if (arg == "--col" && i + 1 < argc)
+				col = static_cast<uint32_t>(std::stoul(argv[++i]));
+			else if (target_file.empty())
+				target_file = arg;
+		}
+		if (!use_stdin && target_file.empty())
+		{
+			std::cout << R"({"error":"no input file"})" << std::endl;
+			return 1;
+		}
+
+		CompileResult compile;
+		if (use_stdin)
+		{
+			std::ostringstream buffer;
+			buffer << std::cin.rdbuf();
+			std::string input = buffer.str();
+			std::string base_dir = std::filesystem::current_path().string();
+			std::string display_name = "<stdin>";
+			if (!display_path.empty())
+			{
+				std::filesystem::path display_fs = std::filesystem::absolute(display_path);
+				base_dir = display_fs.parent_path().string();
+				display_name = display_fs.string();
+			}
+			compile = compile_mml_text(input, base_dir, display_name);
+		}
+		else
+		{
+			compile = compile_mml_file(target_file);
+		}
+
+		if (!compile.song || !compile.lines)
+		{
+			std::ostringstream err;
+			err << R"({"error":")" << compile.error << R"("})";
+			std::cout << err.str() << std::endl;
+			return 1;
+		}
+
+		int32_t tick = find_cursor_tick(*compile.song, *compile.lines, line, col);
+		uint32_t ppqn = compile.song->get_ppqn();
+		std::cout << "{\"cursor_tick\":" << tick << ",\"ppqn\":" << ppqn << "}"
+							<< std::endl;
 		return 0;
 	}
 
