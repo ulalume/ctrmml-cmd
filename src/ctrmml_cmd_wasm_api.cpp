@@ -200,10 +200,7 @@ extern "C" int ctrmml_cmd_wasm_compile_and_relink(const char *text, const char *
 		return 1;
 	}
 
-	// Snapshot the live renderer's tick and sample rate before any state swap.
-	// The renderer holds a shared_ptr to the old Song so it stays valid here.
 	uint32_t current_tick = 0;
-	uint32_t sample_rate = 0;
 	bool had_renderer = false;
 	if (g_renderer && !g_renderer->is_finished())
 	{
@@ -211,7 +208,6 @@ extern "C" int ctrmml_cmd_wasm_compile_and_relink(const char *text, const char *
 		if (driver)
 		{
 			current_tick = driver->get_player_ticks();
-			sample_rate = g_renderer->get_sample_rate();
 			had_renderer = true;
 		}
 	}
@@ -230,11 +226,16 @@ extern "C" int ctrmml_cmd_wasm_compile_and_relink(const char *text, const char *
 
 	if (had_renderer)
 	{
-		// Release the old renderer's shared_ptr to the previous Song before
-		// constructing the new one.
-		g_renderer.reset();
-		if (!build_renderer(current_tick, sample_rate))
+		try
+		{
+			g_renderer->relink_song(g_compile.song, current_tick);
+		}
+		catch (std::exception &e)
+		{
+			set_error(e.what());
+			g_renderer.reset();
 			return 1;
+		}
 	}
 
 	return 0;

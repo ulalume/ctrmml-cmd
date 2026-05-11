@@ -235,6 +235,15 @@ int VgmAudioRenderer::get_loop_count() const
 	return driver ? driver->get_loop_count() : 0;
 }
 
+void VgmAudioRenderer::relink_song(std::shared_ptr<Song> new_song, uint32_t current_tick)
+{
+	if(!driver || !new_song)
+		return;
+	driver->relink_song(*new_song, current_tick);
+	song = std::move(new_song);
+	finished = false;
+}
+
 const std::string &VgmAudioRenderer::last_error() const
 {
 	return last_error_message;

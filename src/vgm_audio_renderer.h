@@ -65,6 +65,10 @@ public:
 	const std::string &last_error() const;
 	void set_mute_mask(int chip_id, uint32_t mask);
 	int get_loop_count() const;
+	//! Hot-swap to a freshly compiled song without resetting the chip
+	//! emulators or the driver's channel objects. Forwards to
+	//! Driver::relink_song(); preserves currently-sounding notes.
+	void relink_song(std::shared_ptr<Song> new_song, uint32_t current_tick);
 
 private:
 	void handle_error(const char *str);
