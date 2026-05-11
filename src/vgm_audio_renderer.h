@@ -58,6 +58,7 @@ public:
 
 	std::shared_ptr<Driver> &get_driver();
 	void setup_stream(uint32_t sample_rate);
+	uint32_t get_sample_rate() const { return static_cast<uint32_t>(sample_rate); }
 	int get_sample(WAVE_32BS *output, int count);
 	void stop_playback();
 	bool is_finished() const;
