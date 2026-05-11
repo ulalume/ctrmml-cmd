@@ -23,6 +23,7 @@
 namespace
 {
 	const float kInvSampleScale = 1.0f / 8388608.0f;
+	constexpr int kMaxChannels = 16;
 	LowPassFilter g_lpf;
 
 	CompileResult g_compile;
@@ -523,7 +524,7 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 	int best_event_col = -1;
 	for (const auto &[track_id, end_pos] : line_map)
 	{
-		if (track_id >= 16)
+		if (track_id >= kMaxChannels)
 			continue;
 		try
 		{
@@ -557,7 +558,7 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 	{
 		for (const auto &[track_id, end_pos] : line_map)
 		{
-			if (track_id >= 16)
+			if (track_id >= kMaxChannels)
 				continue;
 			best_track_id = track_id;
 			break;
