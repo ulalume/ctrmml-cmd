@@ -41,6 +41,25 @@ namespace
 		g_last_error = msg;
 	}
 
+	/** Build g_renderer at `start_ticks` with `sample_rate`. On failure sets
+	 *  g_last_error, clears g_renderer, and returns false. */
+	bool build_renderer(uint32_t start_ticks, uint32_t sample_rate)
+	{
+		try
+		{
+			g_renderer = std::make_unique<VgmAudioRenderer>(g_compile.song, start_ticks, false);
+			g_renderer->setup_stream(sample_rate);
+			g_lpf.init(sample_rate);
+			return true;
+		}
+		catch (std::exception &e)
+		{
+			set_error(e.what());
+			g_renderer.reset();
+			return false;
+		}
+	}
+
 	void rebuild_instrument_data()
 	{
 		if (!g_compile.song)
@@ -156,21 +175,66 @@ extern "C" int ctrmml_cmd_wasm_start_playback(uint32_t sample_rate,
 		return 1;
 	}
 
+	uint32_t start_ticks = 0;
 	try
 	{
-		uint32_t start_ticks = 0;
 		if (start_line > 0 || start_col > 0)
 			start_ticks = find_start_ticks(*g_compile.song, *g_compile.lines, start_line, start_col);
-
-		g_renderer = std::make_unique<VgmAudioRenderer>(g_compile.song, start_ticks, false);
-		g_renderer->setup_stream(sample_rate);
-		g_lpf.init(sample_rate);
 	}
 	catch (std::exception &e)
 	{
 		set_error(e.what());
-		g_renderer.reset();
 		return 1;
+	}
+
+	return build_renderer(start_ticks, sample_rate) ? 0 : 1;
+}
+
+extern "C" int ctrmml_cmd_wasm_compile_and_relink(const char *text, const char *base_dir)
+{
+	g_last_error.clear();
+
+	if (!text || !base_dir)
+	{
+		set_error("invalid input");
+		return 1;
+	}
+
+	// Snapshot the live renderer's tick and sample rate before any state swap.
+	// The renderer holds a shared_ptr to the old Song so it stays valid here.
+	uint32_t current_tick = 0;
+	uint32_t sample_rate = 0;
+	bool had_renderer = false;
+	if (g_renderer && !g_renderer->is_finished())
+	{
+		auto &driver = g_renderer->get_driver();
+		if (driver)
+		{
+			current_tick = driver->get_player_ticks();
+			sample_rate = g_renderer->get_sample_rate();
+			had_renderer = true;
+		}
+	}
+
+	// On compile error leave existing state untouched so the renderer keeps
+	// playing the previously-compiled song.
+	CompileResult new_compile = compile_mml_text(text, base_dir, "input.mml");
+	if (!new_compile.song)
+	{
+		set_error(new_compile.error);
+		return 1;
+	}
+
+	g_compile = std::move(new_compile);
+	rebuild_instrument_data();
+
+	if (had_renderer)
+	{
+		// Release the old renderer's shared_ptr to the previous Song before
+		// constructing the new one.
+		g_renderer.reset();
+		if (!build_renderer(current_tick, sample_rate))
+			return 1;
 	}
 
 	return 0;

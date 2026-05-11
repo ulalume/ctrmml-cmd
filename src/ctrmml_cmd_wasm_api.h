@@ -22,6 +22,11 @@ extern "C"
 	int ctrmml_cmd_wasm_render_audio(float *output, int frames);
 	void ctrmml_cmd_wasm_set_mute_mask(int32_t chip_id, uint32_t mask);
 
+	// Recompile and (if playing) rebuild the audio renderer at the current
+	// player tick. Returns 0 on success, 1 on compile error (existing
+	// playback is preserved on error so audio can keep playing).
+	int ctrmml_cmd_wasm_compile_and_relink(const char *text, const char *base_dir);
+
 	// Tick tracking + highlights
 	uint32_t ctrmml_cmd_wasm_get_player_ticks();
 	uint32_t ctrmml_cmd_wasm_get_highlights(uint32_t ticks,
