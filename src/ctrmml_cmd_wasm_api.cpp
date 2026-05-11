@@ -515,12 +515,53 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 	const auto &line_map = line_it->second;
 	int best_track_id = -1;
 
-	for (const auto &[track_id, event_pos] : line_map)
+	// For chord-split syntax like `ABCD {c/f/a+/>d+}`, multiple tracks share
+	// the same source line but each NOTE event has its own column. Pick the
+	// track whose latest event on this line has the largest column not past
+	// the cursor. line_map[line][track] is the event count AFTER parsing
+	// this line, so iterate [0, end) and filter by reference line == cursor.
+	int best_event_col = -1;
+	for (const auto &[track_id, end_pos] : line_map)
 	{
 		if (track_id >= 16)
 			continue;
-		best_track_id = track_id;
-		break;
+		try
+		{
+			Track &track = g_compile.song->get_track(track_id);
+			for (unsigned long i = 0; i < end_pos; ++i)
+			{
+				Event &event = track.get_event(i);
+				auto ref = event.reference;
+				if (!ref)
+					continue;
+				if (ref->get_line() != static_cast<int>(line))
+					continue;
+				int ev_col = ref->get_column();
+				if (ev_col > static_cast<int>(col))
+					continue;
+				if (ev_col > best_event_col)
+				{
+					best_event_col = ev_col;
+					best_track_id = static_cast<int>(track_id);
+				}
+			}
+		}
+		catch (std::exception &)
+		{
+		}
+	}
+
+	// Fall back to the first track on the line when no event matched
+	// (e.g. cursor is before any chord slot or in leading whitespace).
+	if (best_track_id < 0)
+	{
+		for (const auto &[track_id, end_pos] : line_map)
+		{
+			if (track_id >= 16)
+				continue;
+			best_track_id = track_id;
+			break;
+		}
 	}
 
 	if (best_track_id < 0)
