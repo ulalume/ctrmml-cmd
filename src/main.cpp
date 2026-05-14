@@ -725,13 +725,16 @@ int main(int argc, char **argv)
 		output.stop();
 		if (reader.joinable())
 		{
-			// The reader is blocked on std::cin; on POSIX the SIGINT/SIGTERM
-			// handler will have closed stdin via the kernel, but if we got
-			// here through `g_stop_requested` we may still need to detach.
-			if (pending_done.load())
-				reader.join();
-			else
-				reader.detach();
+			// Unblock the reader's `std::cin.read` so we can join cleanly
+			// before the stack frame goes away. Detaching here would let
+			// the thread outlive its captured locals (`pending_*`) and
+			// the underlying mutex — a real use-after-free on shutdown.
+#if defined(_WIN32)
+			std::freopen("nul", "r", stdin);
+#else
+			std::freopen("/dev/null", "r", stdin);
+#endif
+			reader.join();
 		}
 		clear_pid();
 		return 0;
