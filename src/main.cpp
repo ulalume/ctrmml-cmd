@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -59,6 +60,65 @@ namespace
 		std::filesystem::remove(pid_path(), ec);
 	}
 
+	// --------------------------------------------------------------------
+	// Hot-reload framing
+	//
+	// In `--hot-reload` mode the LSP keeps stdin open and writes a stream
+	// of length-prefixed updates so playback can be relinked mid-song
+	// without restarting the chip emulation.
+	//
+	//   Frame layout: `UPDATE <bytes>\n<MML body of <bytes> bytes>`
+	//                 (optional trailing newline is ignored)
+	//   Sentinel:     `END\n`           — caller has no more updates
+	//
+	// Both writer and reader treat the body as raw bytes so MML containing
+	// arbitrary whitespace, comments, and embedded `\n` is safe.
+	enum class FrameOutcome { Update, End, Error };
+
+	FrameOutcome read_framed_update(std::istream &in, std::string &out_mml)
+	{
+		out_mml.clear();
+		std::string header;
+		if (!std::getline(in, header))
+			return FrameOutcome::End;
+		if (!header.empty() && header.back() == '\r')
+			header.pop_back();
+		if (header == "END")
+			return FrameOutcome::End;
+		const std::string prefix = "UPDATE ";
+		if (header.rfind(prefix, 0) != 0)
+		{
+			std::cerr << "hot-reload: expected `UPDATE <bytes>`, got `" << header << "`\n";
+			return FrameOutcome::Error;
+		}
+		std::size_t bytes = 0;
+		try
+		{
+			bytes = static_cast<std::size_t>(std::stoul(header.substr(prefix.size())));
+		}
+		catch (...)
+		{
+			std::cerr << "hot-reload: bad byte count in `" << header << "`\n";
+			return FrameOutcome::Error;
+		}
+		out_mml.resize(bytes);
+		if (bytes > 0)
+		{
+			in.read(&out_mml[0], static_cast<std::streamsize>(bytes));
+			if (static_cast<std::size_t>(in.gcount()) != bytes)
+			{
+				std::cerr << "hot-reload: stdin closed mid-frame (expected " << bytes
+								<< " bytes, got " << in.gcount() << ")\n";
+				return FrameOutcome::Error;
+			}
+		}
+		// Tolerate (but don't require) a trailing `\n`; ym2612_convert and the
+		// LSP both emit one for readability.
+		if (in.peek() == '\n')
+			in.get();
+		return FrameOutcome::Update;
+	}
+
 	bool parse_line_col(const std::string &value, uint32_t &line, uint32_t &col)
 	{
 		auto pos = value.find(':');
@@ -80,6 +140,7 @@ namespace
 	{
 		std::cerr << "Usage:\n"
 							<< "  ctrmml-cmd play <file> [--start line:col] [--follow]\n"
+							<< "  ctrmml-cmd play --stdin --path <path> [--follow] [--hot-reload]\n"
 							<< "  ctrmml-cmd stop\n"
 							<< "  ctrmml-cmd check [--json] <file>\n"
 							<< "  ctrmml-cmd find-cursor-tick [--stdin --path <path>] [--line N --col M] <file>\n"
@@ -482,6 +543,7 @@ int main(int argc, char **argv)
 		uint32_t start_col = 0;
 		bool has_start = false;
 		bool follow = false;
+		bool hot_reload = false;
 		bool use_stdin = (file == "--stdin" || file == "-");
 		std::string display_path;
 		for (int i = 3; i < argc; ++i)
@@ -495,27 +557,53 @@ int main(int argc, char **argv)
 			{
 				follow = true;
 			}
+			else if (arg == "--hot-reload")
+			{
+				hot_reload = true;
+			}
 			else if (arg == "--path" && i + 1 < argc)
 			{
 				display_path = argv[++i];
 			}
 		}
 
+		// `--hot-reload` is meaningful only when reading MML over stdin —
+		// nothing else gives the LSP a channel to push updates through.
+		if (hot_reload && !use_stdin)
+		{
+			std::cerr << "ctrmml-cmd play: --hot-reload requires --stdin\n";
+			return 1;
+		}
+
+		std::string base_dir = std::filesystem::current_path().string();
+		std::string display_name = "<stdin>";
+		if (use_stdin && !display_path.empty())
+		{
+			std::filesystem::path display_fs = std::filesystem::absolute(display_path);
+			base_dir = display_fs.parent_path().string();
+			display_name = display_fs.string();
+		}
+
 		CompileResult compile{};
-		if (use_stdin)
+		if (use_stdin && hot_reload)
+		{
+			// In hot-reload mode the first stdin frame carries the initial
+			// MML; subsequent frames are processed by the background reader
+			// (set up below, after we've built the renderer).
+			std::string initial;
+			FrameOutcome outcome = read_framed_update(std::cin, initial);
+			if (outcome != FrameOutcome::Update)
+			{
+				std::cerr << "ctrmml-cmd play: hot-reload expected initial UPDATE frame\n";
+				return 1;
+			}
+			compile = compile_mml_text(initial, base_dir, display_name);
+		}
+		else if (use_stdin)
 		{
 			std::ostringstream buffer;
 			buffer << std::cin.rdbuf();
-			std::string input = buffer.str();
-			std::string base_dir = std::filesystem::current_path().string();
-			std::string display_name = "<stdin>";
-			if (!display_path.empty())
-			{
-				std::filesystem::path display_fs = std::filesystem::absolute(display_path);
-				base_dir = display_fs.parent_path().string();
-				display_name = display_fs.string();
-			}
-			compile = compile_mml_text(input, base_dir, display_name);
+			compile = compile_mml_text(buffer.str(), base_dir, display_name);
 		}
 		else
 		{
@@ -554,9 +642,71 @@ int main(int argc, char **argv)
 
 		write_pid();
 
+		// Hot-reload: spin a background reader that pulls subsequent
+		// UPDATE frames off stdin and hands them to the render loop via a
+		// mutex-guarded queue. The reader exits on EOF / END / parse
+		// error, after which `pending_done` flips and we stop trying.
+		std::mutex pending_mu;
+		std::optional<std::string> pending_mml;
+		std::atomic<bool> pending_done{false};
+		std::thread reader;
+		if (hot_reload)
+		{
+			reader = std::thread([&]() {
+				std::string body;
+				while (!g_stop_requested.load())
+				{
+					FrameOutcome outcome = read_framed_update(std::cin, body);
+					if (outcome != FrameOutcome::Update)
+						break;
+					{
+						std::lock_guard<std::mutex> lock(pending_mu);
+						pending_mml = body;
+					}
+				}
+				pending_done.store(true);
+			});
+		}
+
 		uint32_t last_ticks = 0xffffffffu;
 		while (!renderer.is_finished() && !g_stop_requested.load())
 		{
+			if (hot_reload)
+			{
+				std::optional<std::string> next;
+				{
+					std::lock_guard<std::mutex> lock(pending_mu);
+					if (pending_mml.has_value())
+						next.swap(pending_mml);
+				}
+				if (next.has_value())
+				{
+					CompileResult fresh = compile_mml_text(*next, base_dir, display_name);
+					if (fresh.song)
+					{
+						auto driver = renderer.get_driver();
+						uint32_t cur = driver ? driver->get_player_ticks() : 0;
+						try
+						{
+							renderer.relink_song(fresh.song, cur);
+							compile = std::move(fresh);
+						}
+						catch (std::exception &e)
+						{
+							std::cerr << "hot-reload: relink failed: " << e.what() << "\n";
+						}
+					}
+					else
+					{
+						// Compile errors leave the running renderer untouched so
+						// the user can keep listening to the previous good
+						// version while fixing the mistake.
+						std::cerr << "hot-reload: compile failed: " << fresh.error
+											<< "\n";
+					}
+				}
+			}
+
 			if (follow && compile.tracks)
 			{
 				auto driver = renderer.get_driver();
@@ -573,6 +723,16 @@ int main(int argc, char **argv)
 
 		renderer.stop_playback();
 		output.stop();
+		if (reader.joinable())
+		{
+			// The reader is blocked on std::cin; on POSIX the SIGINT/SIGTERM
+			// handler will have closed stdin via the kernel, but if we got
+			// here through `g_stop_requested` we may still need to detach.
+			if (pending_done.load())
+				reader.join();
+			else
+				reader.detach();
+		}
 		clear_pid();
 		return 0;
 	}
