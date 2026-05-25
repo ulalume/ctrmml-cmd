@@ -4,13 +4,18 @@
 #include <cctype>
 #include <cstring>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <vector>
 
 namespace
 {
 	constexpr size_t kHeaderChecksumOffset = 0x18e;
+	constexpr size_t kHeaderRomEndOffset = 0x1a4;
 	constexpr size_t kChecksumStartOffset = 0x200;
+	constexpr size_t kMaxRomSize = 0x400000;
+	constexpr uint32_t kPcmAlignment = 0x8000;
+	constexpr uint16_t kLeaAbsLongA2Opcode = 0x45f9;
 	constexpr char kTemplateMagic[] = "CTRMROM0";
 	constexpr size_t kTemplateMagicSize = sizeof(kTemplateMagic) - 1;
 	constexpr size_t kTemplateMetaSize = kTemplateMagicSize + 16;
@@ -51,10 +56,23 @@ namespace
 					 | static_cast<uint32_t>(bytes[offset + 3]);
 	}
 
+	void write_be32(std::vector<uint8_t> &bytes, size_t offset, uint32_t value)
+	{
+		bytes[offset] = static_cast<uint8_t>((value >> 24) & 0xffu);
+		bytes[offset + 1] = static_cast<uint8_t>((value >> 16) & 0xffu);
+		bytes[offset + 2] = static_cast<uint8_t>((value >> 8) & 0xffu);
+		bytes[offset + 3] = static_cast<uint8_t>(value & 0xffu);
+	}
+
 	void write_be16(std::vector<uint8_t> &bytes, size_t offset, uint16_t value)
 	{
 		bytes[offset] = static_cast<uint8_t>((value >> 8) & 0xffu);
 		bytes[offset + 1] = static_cast<uint8_t>(value & 0xffu);
+	}
+
+	size_t align_up(size_t value, size_t alignment)
+	{
+		return (value + alignment - 1) & ~(alignment - 1);
 	}
 
 	std::string trim(const std::string &value)
@@ -323,15 +341,47 @@ namespace
 		return true;
 	}
 
-	void write_slot(std::vector<uint8_t> &rom,
-									size_t offset,
-									size_t slot_size,
-									uint8_t fill_value,
-									const std::vector<uint8_t> &payload)
+	bool patch_lea_abs_long(std::vector<uint8_t> &rom,
+													size_t search_end,
+													uint16_t opcode,
+													uint32_t old_address,
+													uint32_t new_address,
+													const char *label,
+													std::string &error)
 	{
-		std::fill(rom.begin() + static_cast<std::ptrdiff_t>(offset),
-							rom.begin() + static_cast<std::ptrdiff_t>(offset + slot_size),
-							fill_value);
+		std::vector<size_t> matches;
+		const size_t bounded_end = std::min(search_end, rom.size());
+		for (size_t i = 0; i + 6 <= bounded_end; ++i)
+		{
+			uint16_t candidate_opcode =
+					(static_cast<uint16_t>(rom[i]) << 8) | static_cast<uint16_t>(rom[i + 1]);
+			if (candidate_opcode != opcode)
+				continue;
+			if (read_be32(rom, i + 2) == old_address)
+				matches.push_back(i);
+		}
+
+		if (matches.size() != 1)
+		{
+			error = "failed to locate unique " + std::string(label)
+							+ " absolute address reference in template ROM";
+			return false;
+		}
+
+		write_be32(rom, matches.front() + 2, new_address);
+		return true;
+	}
+
+	void append_payload(std::vector<uint8_t> &rom,
+											size_t offset,
+											uint8_t fill_value,
+											const std::vector<uint8_t> &payload)
+	{
+		if (rom.size() < offset)
+			rom.resize(offset, fill_value);
+		const size_t end = offset + payload.size();
+		if (rom.size() < end)
+			rom.resize(end, fill_value);
 		std::copy(payload.begin(),
 							payload.end(),
 							rom.begin() + static_cast<std::ptrdiff_t>(offset));
@@ -415,28 +465,13 @@ RomBuildResult run_rom_build(const RomBuildOptions &options)
 
 	const auto seq_size = build.payload.seq_data.size();
 	const auto pcm_size = build.payload.pcm_data.size();
-	if (seq_size > static_cast<size_t>(layout.seq_size))
+
+	const size_t seq_offset = static_cast<size_t>(layout.seq_offset);
+	const size_t seq_end = seq_offset + seq_size;
+	if (seq_end < seq_offset)
 	{
 		return {false,
-						"mdsseq payload exceeds slot size (" + std::to_string(seq_size) + " > "
-								+ std::to_string(layout.seq_size) + ")",
-						seq_size,
-						pcm_size,
-						layout.seq_offset,
-						layout.pcm_offset,
-						layout.seq_size,
-						layout.pcm_size,
-						layout.from_marker,
-						runtime_values.bgm_min,
-						runtime_values.bgm_max,
-						runtime_values.se_min,
-						runtime_values.se_max};
-	}
-	if (pcm_size > static_cast<size_t>(layout.pcm_size))
-	{
-		return {false,
-						"mdspcm payload exceeds slot size (" + std::to_string(pcm_size) + " > "
-								+ std::to_string(layout.pcm_size) + ")",
+						"mdsseq payload range overflowed",
 						seq_size,
 						pcm_size,
 						layout.seq_offset,
@@ -450,16 +485,67 @@ RomBuildResult run_rom_build(const RomBuildOptions &options)
 						runtime_values.se_max};
 	}
 
-	write_slot(rom,
-						 static_cast<size_t>(layout.seq_offset),
-						 static_cast<size_t>(layout.seq_size),
-						 options.fill_value,
-						 build.payload.seq_data);
-	write_slot(rom,
-						 static_cast<size_t>(layout.pcm_offset),
-						 static_cast<size_t>(layout.pcm_size),
-						 options.fill_value,
-						 build.payload.pcm_data);
+	const size_t compact_pcm_offset = align_up(seq_end, kPcmAlignment);
+	if (compact_pcm_offset > static_cast<size_t>(std::numeric_limits<uint32_t>::max()))
+	{
+		return {false,
+						"compacted mdspcm offset exceeds 32-bit ROM address range",
+						seq_size,
+						pcm_size,
+						layout.seq_offset,
+						layout.pcm_offset,
+						layout.seq_size,
+						layout.pcm_size,
+						layout.from_marker,
+						runtime_values.bgm_min,
+						runtime_values.bgm_max,
+						runtime_values.se_min,
+						runtime_values.se_max};
+	}
+	if (compact_pcm_offset + pcm_size < compact_pcm_offset)
+	{
+		return {false,
+						"mdspcm payload range overflowed",
+						seq_size,
+						pcm_size,
+						layout.seq_offset,
+						layout.pcm_offset,
+						layout.seq_size,
+						layout.pcm_size,
+						layout.from_marker,
+						runtime_values.bgm_min,
+						runtime_values.bgm_max,
+						runtime_values.se_min,
+						runtime_values.se_max};
+	}
+
+	const uint32_t output_pcm_offset = static_cast<uint32_t>(compact_pcm_offset);
+	if (output_pcm_offset != layout.pcm_offset)
+	{
+		std::string patch_error;
+		if (!patch_lea_abs_long(rom,
+														seq_offset,
+														kLeaAbsLongA2Opcode,
+														layout.pcm_offset,
+														output_pcm_offset,
+														"MDSPCM",
+														patch_error))
+		{
+			return {false,
+							patch_error,
+							seq_size,
+							pcm_size,
+							layout.seq_offset,
+							output_pcm_offset,
+							layout.seq_size,
+							layout.pcm_size,
+							layout.from_marker,
+							runtime_values.bgm_min,
+							runtime_values.bgm_max,
+							runtime_values.se_min,
+							runtime_values.se_max};
+		}
+	}
 
 	write_be16(rom,
 						 static_cast<size_t>(config_offsets.bgm_min_offset),
@@ -474,6 +560,53 @@ RomBuildResult run_rom_build(const RomBuildOptions &options)
 						 static_cast<size_t>(config_offsets.se_max_offset),
 						 runtime_values.se_max);
 
+	std::vector<uint8_t> compact_rom(rom.begin(),
+																	 rom.begin() + static_cast<std::ptrdiff_t>(seq_offset));
+	append_payload(compact_rom, seq_offset, options.fill_value, build.payload.seq_data);
+	append_payload(compact_rom,
+								 static_cast<size_t>(output_pcm_offset),
+								 options.fill_value,
+								 build.payload.pcm_data);
+	if (compact_rom.size() & 1u)
+		compact_rom.push_back(options.fill_value);
+	rom = std::move(compact_rom);
+
+	if (rom.size() < (kHeaderRomEndOffset + 4))
+	{
+		return {false,
+						"template rom is too small to contain Mega Drive ROM end header field",
+						seq_size,
+						pcm_size,
+						layout.seq_offset,
+						output_pcm_offset,
+						layout.seq_size,
+						layout.pcm_size,
+						layout.from_marker,
+						runtime_values.bgm_min,
+						runtime_values.bgm_max,
+						runtime_values.se_min,
+						runtime_values.se_max};
+	}
+	write_be32(rom, kHeaderRomEndOffset, static_cast<uint32_t>(rom.size() - 1));
+
+	if (rom.size() > kMaxRomSize)
+	{
+		return {false,
+						"output ROM exceeds maximum size (" + std::to_string(rom.size()) + " > "
+								+ std::to_string(kMaxRomSize) + ")",
+						seq_size,
+						pcm_size,
+						layout.seq_offset,
+						output_pcm_offset,
+						layout.seq_size,
+						layout.pcm_size,
+						layout.from_marker,
+						runtime_values.bgm_min,
+						runtime_values.bgm_max,
+						runtime_values.se_min,
+						runtime_values.se_max};
+	}
+
 	if (options.update_checksum)
 	{
 		if (rom.size() < (kHeaderChecksumOffset + 2))
@@ -483,7 +616,7 @@ RomBuildResult run_rom_build(const RomBuildOptions &options)
 							seq_size,
 							pcm_size,
 							layout.seq_offset,
-							layout.pcm_offset,
+							output_pcm_offset,
 							layout.seq_size,
 							layout.pcm_size,
 							layout.from_marker,
@@ -505,7 +638,7 @@ RomBuildResult run_rom_build(const RomBuildOptions &options)
 						seq_size,
 						pcm_size,
 						layout.seq_offset,
-						layout.pcm_offset,
+						output_pcm_offset,
 						layout.seq_size,
 						layout.pcm_size,
 						layout.from_marker,
@@ -520,7 +653,7 @@ RomBuildResult run_rom_build(const RomBuildOptions &options)
 					seq_size,
 					pcm_size,
 					layout.seq_offset,
-					layout.pcm_offset,
+					output_pcm_offset,
 					layout.seq_size,
 					layout.pcm_size,
 					layout.from_marker,
