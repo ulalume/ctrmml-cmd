@@ -451,7 +451,12 @@ int main(int argc, char **argv)
 		std::error_code file_size_error;
 		const auto rom_size = std::filesystem::file_size(options.output_rom_path, file_size_error);
 		if (!file_size_error)
-			std::cout << "rom size: " << rom_size << " bytes\n";
+		{
+			constexpr size_t kMaxRomSize = 0x400000;
+			double usage_pct = 100.0 * static_cast<double>(rom_size) / static_cast<double>(kMaxRomSize);
+			std::cout << "rom size: " << rom_size << " / " << kMaxRomSize << " bytes ("
+								<< std::fixed << std::setprecision(2) << usage_pct << "%)\n";
+		}
 		std::cout << "mdsseq: " << result.seq_size << " bytes"
 							<< " (offset 0x" << std::hex << result.seq_offset << std::dec << ")\n";
 		std::cout << "mdspcm: " << result.pcm_size << " bytes"
