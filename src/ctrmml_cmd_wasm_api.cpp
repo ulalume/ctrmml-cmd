@@ -1,6 +1,7 @@
 #include "ctrmml_cmd_wasm_api.h"
 
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -35,6 +36,9 @@ namespace
 	std::string g_check_json_result;
 	std::string g_track_json;
 	std::string g_channel_json;
+	RomBuildResult g_quickrom_result;
+	size_t g_quickrom_rom_size = 0;
+	std::string g_quickrom_info;
 
 	void set_error(const std::string &msg)
 	{
@@ -410,12 +414,24 @@ extern "C" int ctrmml_cmd_wasm_quickrom(const char **input_paths,
 	rom_opts.output_rom_path = out_path;
 
 	auto result = run_rom_build(rom_opts);
+	g_quickrom_result = result;
+	g_quickrom_rom_size = 0;
 	if (!result.ok)
 	{
 		set_error(result.error);
 		return 1;
 	}
+	std::error_code ec;
+	auto fsize = std::filesystem::file_size(out_path, ec);
+	if (!ec)
+		g_quickrom_rom_size = static_cast<size_t>(fsize);
 	return 0;
+}
+
+extern "C" const char *ctrmml_cmd_wasm_get_quickrom_info()
+{
+	g_quickrom_info = format_rom_build_summary(g_quickrom_result, g_quickrom_rom_size);
+	return g_quickrom_info.c_str();
 }
 
 extern "C" int ctrmml_cmd_wasm_mdslink(const char **input_paths,

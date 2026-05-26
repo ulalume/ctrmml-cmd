@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstring>
 #include <fstream>
+#include <iomanip>
 #include <limits>
 #include <sstream>
 #include <vector>
@@ -661,4 +662,54 @@ RomBuildResult run_rom_build(const RomBuildOptions &options)
 					runtime_values.bgm_max,
 					runtime_values.se_min,
 					runtime_values.se_max};
+}
+
+std::string format_rom_build_summary(const RomBuildResult &r, size_t rom_file_size)
+{
+	auto format_hex = [](uint32_t v) -> std::string
+	{
+		std::ostringstream s;
+		s << "0x" << std::hex << std::setfill('0') << std::setw(5) << v;
+		return s.str();
+	};
+	auto format_region = [&](const char *label, size_t size, uint32_t start) -> std::string
+	{
+		std::ostringstream s;
+		s << "  " << std::left << std::setw(8) << label
+			<< std::right << std::setw(8) << size << " bytes  "
+			<< "[" << format_hex(start) << "-"
+			<< format_hex(size > 0 ? static_cast<uint32_t>(start + size - 1) : start) << "]";
+		return s.str();
+	};
+	auto format_id_range = [](const char *label, uint16_t min, uint16_t max) -> std::string
+	{
+		std::ostringstream s;
+		s << label << ' ';
+		if (min == 0 && max == 0)
+			s << "none";
+		else if (min > max)
+			s << "none";
+		else
+			s << min << ".." << max;
+		return s.str();
+	};
+
+	constexpr size_t kMaxRomSizeDisplay = 0x400000;
+	std::ostringstream os;
+	if (rom_file_size > 0)
+	{
+		double usage_pct =
+				100.0 * static_cast<double>(rom_file_size) / static_cast<double>(kMaxRomSizeDisplay);
+		os << "rom      "
+			 << std::right << std::setw(8) << rom_file_size << " / "
+			 << kMaxRomSizeDisplay << " bytes ("
+			 << std::fixed << std::setprecision(2) << usage_pct << "%)\n";
+	}
+	os << format_region("driver", static_cast<size_t>(r.seq_offset), 0) << "\n";
+	os << format_region("seq", r.seq_size, r.seq_offset) << "\n";
+	os << format_region("pcm", r.pcm_size, r.pcm_offset) << "\n";
+	os << "  ids     "
+		 << format_id_range("BGM", r.bgm_min, r.bgm_max) << ", "
+		 << format_id_range("SE", r.se_min, r.se_max);
+	return os.str();
 }

@@ -34,3 +34,4 @@ struct RomBuildResult
 };
 
 RomBuildResult run_rom_build(const RomBuildOptions &options);
+std::string format_rom_build_summary(const RomBuildResult &result, size_t rom_file_size);

@@ -52,6 +52,7 @@ extern "C"
 															const char *c_header_out,
 															const char *asm_header_out);
 	const char *ctrmml_cmd_wasm_get_last_error();
+	const char *ctrmml_cmd_wasm_get_quickrom_info();
 
 	// Track data (JSON) — visualization
 	const char *ctrmml_cmd_wasm_get_track_data_json();
