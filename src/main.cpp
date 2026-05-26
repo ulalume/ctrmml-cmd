@@ -446,44 +446,56 @@ int main(int argc, char **argv)
 		}
 
 		std::cout << "wrote " << options.output_rom_path << "\n";
-		std::cout << "template metadata: "
-							<< (result.used_template_marker ? "CTRMROM0 marker" : "none") << "\n";
+
 		std::error_code file_size_error;
 		const auto rom_size = std::filesystem::file_size(options.output_rom_path, file_size_error);
-		if (!file_size_error)
+
+		constexpr size_t kMaxRomSize = 0x400000;
+		auto format_hex = [](uint32_t v) -> std::string
 		{
-			constexpr size_t kMaxRomSize = 0x400000;
-			double usage_pct = 100.0 * static_cast<double>(rom_size) / static_cast<double>(kMaxRomSize);
-			std::cout << "rom size: " << rom_size << " / " << kMaxRomSize << " bytes ("
-								<< std::fixed << std::setprecision(2) << usage_pct << "%)\n";
-		}
-		std::cout << "mdsseq: " << result.seq_size << " bytes"
-							<< " (offset 0x" << std::hex << result.seq_offset << std::dec << ")\n";
-		std::cout << "mdspcm: " << result.pcm_size << " bytes"
-							<< " (offset 0x" << std::hex << result.pcm_offset << std::dec << ")\n";
+			std::ostringstream s;
+			s << "0x" << std::hex << std::setfill('0') << std::setw(5) << v;
+			return s.str();
+		};
+		auto format_region = [&](const char *label, size_t size, uint32_t start) -> std::string
+		{
+			std::ostringstream s;
+			s << "  " << std::left << std::setw(8) << label
+				<< std::right << std::setw(8) << size << " bytes  "
+				<< "[" << format_hex(start) << "-"
+				<< format_hex(size > 0 ? static_cast<uint32_t>(start + size - 1) : start) << "]";
+			return s.str();
+		};
 		auto format_id_range = [](const char *label, uint16_t min, uint16_t max) -> std::string
 		{
-			std::ostringstream stream;
-			stream << label << ' ';
+			std::ostringstream s;
+			s << label << ' ';
 			if (min == 0 && max == 0)
-			{
-				stream << "none";
-			}
+				s << "none";
 			else if (min > max)
-			{
-				stream << "none";
-			}
+				s << "none";
 			else
-			{
-				stream << min << ".." << max;
-			}
-			return stream.str();
+				s << min << ".." << max;
+			return s.str();
 		};
-		std::cout << "ids: "
-							<< format_id_range("BGM", result.bgm_min, result.bgm_max)
-							<< ", "
-							<< format_id_range("SE", result.se_min, result.se_max)
-							<< "\n";
+
+		if (!file_size_error)
+		{
+			double usage_pct =
+					100.0 * static_cast<double>(rom_size) / static_cast<double>(kMaxRomSize);
+			std::cout << "rom      "
+								<< std::right << std::setw(8) << rom_size << " / "
+								<< kMaxRomSize << " bytes ("
+								<< std::fixed << std::setprecision(2) << usage_pct << "%)\n";
+		}
+
+		const size_t driver_size = static_cast<size_t>(result.seq_offset);
+		std::cout << format_region("driver", driver_size, 0) << "\n";
+		std::cout << format_region("seq", result.seq_size, result.seq_offset) << "\n";
+		std::cout << format_region("pcm", result.pcm_size, result.pcm_offset) << "\n";
+		std::cout << "  ids     "
+							<< format_id_range("BGM", result.bgm_min, result.bgm_max) << ", "
+							<< format_id_range("SE", result.se_min, result.se_max) << "\n";
 		return 0;
 	}
 
