@@ -38,7 +38,7 @@ include(FetchContent)
 FetchContent_Declare(
   ctrmml
   GIT_REPOSITORY https://github.com/ulalume/ctrmml.git
-  GIT_TAG a968a57
+  GIT_TAG 29386aa
 )
 FetchContent_Declare(
   ymfm
