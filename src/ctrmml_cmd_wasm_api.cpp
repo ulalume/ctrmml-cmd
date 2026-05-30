@@ -39,6 +39,8 @@ namespace
 	RomBuildResult g_quickrom_result;
 	size_t g_quickrom_rom_size = 0;
 	std::string g_quickrom_info;
+	MdslinkPayload g_mdslink_payload;
+	std::string g_mdslink_info;
 
 	void set_error(const std::string &msg)
 	{
@@ -455,13 +457,26 @@ extern "C" int ctrmml_cmd_wasm_mdslink(const char **input_paths,
 	opts.c_header_output = c_header_out;
 	opts.asm_header_output = asm_header_out;
 
-	auto result = run_mdslink(opts);
-	if (!result.ok)
+	auto build = build_mdslink_payload(opts);
+	if (!build.ok)
 	{
-		set_error(result.error);
+		set_error(build.error);
 		return 1;
 	}
+	auto written = write_mdslink_outputs(opts, build.payload);
+	if (!written.ok)
+	{
+		set_error(written.error);
+		return 1;
+	}
+	g_mdslink_payload = std::move(build.payload);
 	return 0;
+}
+
+extern "C" const char *ctrmml_cmd_wasm_get_mdslink_info()
+{
+	g_mdslink_info = format_mdslink_build_summary(g_mdslink_payload);
+	return g_mdslink_info.c_str();
 }
 
 extern "C" const char *ctrmml_cmd_wasm_get_last_error()

@@ -2,7 +2,9 @@
 
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <utility>
 #include <vector>
 
@@ -68,26 +70,22 @@ namespace
 	}
 }
 
-MdslinkResult run_mdslink(const MdslinkOptions& options)
+MdslinkResult write_mdslink_outputs(const MdslinkOptions& options, const MdslinkPayload& payload)
 {
-	auto build = build_mdslink_payload(options);
-	if (!build.ok)
-		return {false, build.error};
-
 	if (!options.seq_output.empty())
 	{
 		std::cout << "writing " << options.seq_output << " ...\n";
-		auto result = write_binary_file(options.seq_output, build.payload.seq_data);
+		auto result = write_binary_file(options.seq_output, payload.seq_data);
 		if (!result.ok)
 			return result;
 	}
 	if (!options.pcm_output.empty())
 	{
 		std::cout << "writing " << options.pcm_output << " ...\n";
-		auto result = write_binary_file(options.pcm_output, build.payload.pcm_data);
+		auto result = write_binary_file(options.pcm_output, payload.pcm_data);
 		if (!result.ok)
 			return result;
-		std::cout << build.payload.statistics;
+		std::cout << payload.statistics;
 	}
 	if (!options.asm_header_output.empty())
 	{
@@ -95,8 +93,8 @@ MdslinkResult run_mdslink(const MdslinkOptions& options)
 		std::ofstream out(options.asm_header_output);
 		if (!out)
 			return {false, stringf("Couldn't write %s", options.asm_header_output.c_str())};
-		out.write(build.payload.asm_header.data(),
-							static_cast<std::streamsize>(build.payload.asm_header.size()));
+		out.write(payload.asm_header.data(),
+							static_cast<std::streamsize>(payload.asm_header.size()));
 	}
 	if (!options.c_header_output.empty())
 	{
@@ -104,11 +102,39 @@ MdslinkResult run_mdslink(const MdslinkOptions& options)
 		std::ofstream out(options.c_header_output);
 		if (!out)
 			return {false, stringf("Couldn't write %s", options.c_header_output.c_str())};
-		out.write(build.payload.c_header.data(),
-							static_cast<std::streamsize>(build.payload.c_header.size()));
+		out.write(payload.c_header.data(),
+							static_cast<std::streamsize>(payload.c_header.size()));
 	}
 
 	return {true, ""};
+}
+
+MdslinkResult run_mdslink(const MdslinkOptions& options)
+{
+	auto build = build_mdslink_payload(options);
+	if (!build.ok)
+		return {false, build.error};
+	return write_mdslink_outputs(options, build.payload);
+}
+
+std::string format_mdslink_build_summary(const MdslinkPayload& payload)
+{
+	auto format_row = [](const char* label, size_t value, const char* suffix) -> std::string
+	{
+		std::ostringstream s;
+		s << "  " << std::left << std::setw(8) << label
+			<< std::right << std::setw(8) << value << suffix;
+		return s.str();
+	};
+
+	size_t seq = payload.seq_data.size();
+	size_t pcm = payload.pcm_data.size();
+	std::ostringstream os;
+	os << "mdslink  " << std::right << std::setw(8) << (seq + pcm) << " bytes\n";
+	os << format_row("songs", payload.song_count, "") << "\n";
+	os << format_row("seq", seq, " bytes  (mdsseq.bin)") << "\n";
+	os << format_row("pcm", pcm, " bytes  (mdspcm.bin)");
+	return os.str();
 }
 
 MdslinkBuildResult build_mdslink_payload(const MdslinkOptions& options)
@@ -149,6 +175,7 @@ MdslinkBuildResult build_mdslink_payload(const MdslinkOptions& options)
 		payload.statistics = linker.get_statistics();
 		payload.asm_header = linker.get_asm_header();
 		payload.c_header = linker.get_c_header();
+		payload.song_count = linker.get_seq_count();
 		return {true, "", std::move(payload)};
 	}
 	catch (InputError& error)

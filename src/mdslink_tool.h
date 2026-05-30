@@ -26,6 +26,7 @@ struct MdslinkPayload
 	std::string asm_header;
 	std::string c_header;
 	std::string statistics;
+	unsigned int song_count = 0;
 };
 
 struct MdslinkBuildResult
@@ -36,4 +37,9 @@ struct MdslinkBuildResult
 };
 
 MdslinkBuildResult build_mdslink_payload(const MdslinkOptions& options);
+MdslinkResult write_mdslink_outputs(const MdslinkOptions& options, const MdslinkPayload& payload);
 MdslinkResult run_mdslink(const MdslinkOptions& options);
+
+//! Format a human-readable build summary (song count + seq/pcm sizes),
+//! mirroring the style of format_rom_build_summary().
+std::string format_mdslink_build_summary(const MdslinkPayload& payload);
