@@ -43,6 +43,17 @@ JSON lines to stdout:
 - `line` and `col` are 0-based, matching `InputRef` (`get_line`, `get_column`).
 - Multiple positions represent simultaneous tracks.
 
+If followed playback stops because the renderer raises an error, the native CLI
+emits one final JSON line:
+
+```json
+{"type":"playback_error","message":"Panning not supported for PSG channels"}
+```
+
+The WASM API exposes renderer failures through the existing
+`ctrmml_cmd_wasm_get_last_error()` function. Starting new playback clears that
+string; callers may read it repeatedly after rendering stops.
+
 ## Check JSON output
 
 `ctrmml-cmd check --json <path>` prints a single JSON object to stdout:

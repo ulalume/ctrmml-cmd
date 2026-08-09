@@ -191,6 +191,34 @@ namespace
 							<< std::flush;
 	}
 
+	void emit_playback_error(const std::string &message)
+	{
+		std::cout << R"({"type":"playback_error","message":")";
+		for (unsigned char c : message)
+		{
+			switch (c)
+			{
+			case '"': std::cout << "\\\""; break;
+			case '\\': std::cout << "\\\\"; break;
+			case '\n': std::cout << "\\n"; break;
+			case '\r': std::cout << "\\r"; break;
+			case '\t': std::cout << "\\t"; break;
+			default:
+				if (c < 0x20)
+				{
+					char escaped[7];
+					std::snprintf(escaped, sizeof(escaped), "\\u%04x", c);
+					std::cout << escaped;
+				}
+				else
+				{
+					std::cout << static_cast<char>(c);
+				}
+			}
+		}
+		std::cout << "\"}\n" << std::flush;
+	}
+
 }
 
 int main(int argc, char **argv)
@@ -687,6 +715,8 @@ int main(int argc, char **argv)
 
 		renderer.stop_playback();
 		output.stop();
+		if (follow && !renderer.last_error().empty())
+			emit_playback_error(renderer.last_error());
 		if (reader.joinable())
 		{
 			// Unblock the reader's `std::cin.read` so we can join cleanly

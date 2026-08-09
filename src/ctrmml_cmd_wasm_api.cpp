@@ -170,10 +170,11 @@ extern "C" const char *ctrmml_cmd_wasm_check_json(const char *text,
 // ---------------------------------------------------------------------------
 
 extern "C" int ctrmml_cmd_wasm_start_playback(uint32_t sample_rate,
-																							uint32_t start_line,
-																							uint32_t start_col)
+															uint32_t start_line,
+															uint32_t start_col)
 {
 	g_renderer.reset();
+	g_last_error.clear();
 
 	if (!g_compile.song || !g_compile.tracks || !g_compile.lines)
 	{
@@ -289,6 +290,8 @@ extern "C" int ctrmml_cmd_wasm_render_audio(float *output, int frames)
 		written = g_renderer->get_sample(scratch.data(), frames);
 		if (written < 0)
 			written = 0;
+		if (g_renderer->is_finished() && !g_renderer->last_error().empty())
+			set_error(g_renderer->last_error());
 	}
 
 	if (has_preview)
