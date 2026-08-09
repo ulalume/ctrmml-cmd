@@ -17,6 +17,7 @@
 #endif
 
 #include "input.h"
+#include "check_channel_events.h"
 #include "check_supplemental.h"
 #include "mml_compile.h"
 #include "vgm_audio_renderer.h"
@@ -387,6 +388,8 @@ namespace
 		ctrmml_cmd::SupplementalChecker checker(text, base_dir);
 		auto supplemental_errors = checker.collect_errors(display_name);
 		report.errors.insert(report.errors.end(), supplemental_errors.begin(), supplemental_errors.end());
+		auto channel_errors = ctrmml_cmd::collect_channel_event_errors(*compile.song, display_name);
+		report.errors.insert(report.errors.end(), channel_errors.begin(), channel_errors.end());
 		auto range_warnings = collect_rom_note_range_warnings(compile.song, display_name);
 		report.warnings.insert(report.warnings.end(), range_warnings.begin(), range_warnings.end());
 
