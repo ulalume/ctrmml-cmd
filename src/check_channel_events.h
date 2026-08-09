@@ -9,7 +9,7 @@ class Song;
 
 namespace ctrmml_cmd
 {
-	std::vector<CheckMessage> collect_channel_event_errors(
+	std::vector<CheckMessage> collect_channel_event_warnings(
 			Song &song,
 			const std::string &display_name);
 }

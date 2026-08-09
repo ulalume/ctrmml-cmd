@@ -1,5 +1,6 @@
 #include "ctrmml_cmd.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <cstdint>
@@ -338,6 +339,52 @@ namespace
 		return msg.message;
 	}
 
+	bool is_same_location(
+			const ctrmml_cmd::CheckMessage &left,
+			const ctrmml_cmd::CheckMessage &right)
+	{
+		if (left.line == 0 || left.col == 0 || left.line != right.line || left.col != right.col)
+			return false;
+		return left.path.empty() || right.path.empty() || left.path == right.path;
+	}
+
+	bool is_panning_playback_error(const ctrmml_cmd::CheckMessage &message)
+	{
+		return message.code == "playback_error"
+				&& message.message.rfind("Panning not supported for PSG channels", 0) == 0;
+	}
+
+	bool is_macro_channel_warning(const ctrmml_cmd::CheckMessage &message)
+	{
+		return message.message.find(", macro *") != std::string::npos;
+	}
+
+	void reconcile_preflight_error(
+			ctrmml_cmd::CheckReport &report,
+			const ctrmml_cmd::CheckMessage &message)
+	{
+		auto warning = std::find_if(
+				report.warnings.begin(),
+				report.warnings.end(),
+				[&](const auto &candidate) {
+					return candidate.code == "playback_unsupported_warning"
+							&& is_panning_playback_error(message)
+							&& is_same_location(candidate, message);
+				});
+		if (warning == report.warnings.end())
+		{
+			report.errors.push_back(message);
+		}
+		else if (!is_macro_channel_warning(*warning))
+		{
+			// Preserve the direct tick-zero preflight error, but do not
+			// duplicate the same finding in the warnings array. A shared
+			// macro location remains a non-blocking channel-context warning.
+			report.warnings.erase(warning);
+			report.errors.push_back(message);
+		}
+	}
+
 	template <typename CompileFn>
 	ctrmml_cmd::CheckReport build_check_report(
 			const std::string &text,
@@ -388,8 +435,8 @@ namespace
 		ctrmml_cmd::SupplementalChecker checker(text, base_dir);
 		auto supplemental_errors = checker.collect_errors(display_name);
 		report.errors.insert(report.errors.end(), supplemental_errors.begin(), supplemental_errors.end());
-		auto channel_errors = ctrmml_cmd::collect_channel_event_errors(*compile.song, display_name);
-		report.errors.insert(report.errors.end(), channel_errors.begin(), channel_errors.end());
+		auto channel_warnings = ctrmml_cmd::collect_channel_event_warnings(*compile.song, display_name);
+		report.warnings.insert(report.warnings.end(), channel_warnings.begin(), channel_warnings.end());
 		auto range_warnings = collect_rom_note_range_warnings(compile.song, display_name);
 		report.warnings.insert(report.warnings.end(), range_warnings.begin(), range_warnings.end());
 
@@ -405,17 +452,10 @@ namespace
 					if (mapped.has_value())
 					{
 						mapped->raw = format_message_line(*mapped);
-						report.errors.push_back(*mapped);
-					}
-					else
-					{
-						report.errors.push_back(message);
+						message = *mapped;
 					}
 				}
-				else
-				{
-					report.errors.push_back(message);
-				}
+				reconcile_preflight_error(report, message);
 			}
 		}
 

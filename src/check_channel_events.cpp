@@ -34,7 +34,7 @@ namespace
 		return i == value.size() && expected[i] == '\0';
 	}
 
-	ctrmml_cmd::CheckMessage make_error(
+	ctrmml_cmd::CheckMessage make_warning(
 			const std::shared_ptr<InputRef> &ref,
 			const std::string &display_name,
 			uint16_t channel_id,
@@ -42,7 +42,8 @@ namespace
 			bool via_jump)
 	{
 		std::ostringstream message;
-		message << "Panning not supported for PSG channels (channel "
+		message << "Panning is not supported for PSG channels: in-app playback will stop here "
+					"(MDSDRV hardware ignores it) (channel "
 					<< static_cast<char>('A' + channel_id);
 		if (via_jump)
 			message << ", macro *" << event_track_id;
@@ -50,7 +51,7 @@ namespace
 
 		ctrmml_cmd::CheckMessage out{};
 		out.message = message.str();
-		out.code = "playback_error";
+		out.code = "playback_unsupported_warning";
 		out.length = 1;
 		if (ref)
 		{
@@ -87,9 +88,9 @@ namespace
 				step_event();
 		}
 
-		std::vector<ctrmml_cmd::CheckMessage> take_errors()
+		std::vector<ctrmml_cmd::CheckMessage> take_warnings()
 		{
-			return std::move(errors);
+			return std::move(warnings);
 		}
 
 	private:
@@ -102,7 +103,7 @@ namespace
 			uint16_t event_track_id = track_it == event_track_ids.end()
 												? channel_id
 												: track_it->second;
-			errors.push_back(make_error(
+			warnings.push_back(make_warning(
 					event.reference,
 					display_name,
 					channel_id,
@@ -145,17 +146,17 @@ namespace
 		std::string display_name;
 		std::unordered_map<const Event *, uint16_t> event_track_ids;
 		std::set<const Event *> seen_events;
-		std::vector<ctrmml_cmd::CheckMessage> errors;
+		std::vector<ctrmml_cmd::CheckMessage> warnings;
 	};
 }
 
 namespace ctrmml_cmd
 {
-	std::vector<CheckMessage> collect_channel_event_errors(
+	std::vector<CheckMessage> collect_channel_event_warnings(
 			Song &song,
 			const std::string &display_name)
 	{
-		std::vector<CheckMessage> errors;
+		std::vector<CheckMessage> warnings;
 		for (auto &[track_id, track] : song.get_track_map())
 		{
 			if (track_id >= kChannelTrackCount)
@@ -164,12 +165,12 @@ namespace ctrmml_cmd
 				continue;
 
 			ChannelEventChecker checker(song, track, track_id, display_name);
-			auto channel_errors = checker.take_errors();
-			errors.insert(
-					errors.end(),
-					std::make_move_iterator(channel_errors.begin()),
-					std::make_move_iterator(channel_errors.end()));
+			auto channel_warnings = checker.take_warnings();
+			warnings.insert(
+					warnings.end(),
+					std::make_move_iterator(channel_warnings.begin()),
+					std::make_move_iterator(channel_warnings.end()));
 		}
-		return errors;
+		return warnings;
 	}
 }

@@ -195,29 +195,32 @@ else()
   target_link_libraries(ctrmml-cmd PRIVATE ctrmml-cmd-lib)
 
   if(BUILD_TESTING)
-    function(add_check_json_test name fixture expected_ok expected_errors expected_message expected_position)
+    function(add_check_json_test name fixture expected_ok expected_errors expected_warnings expected_message expected_position)
       add_test(NAME ${name}
         COMMAND ${CMAKE_COMMAND}
           "-DCTRMML_CMD=$<TARGET_FILE:ctrmml-cmd>"
           "-DFIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/${fixture}"
           "-DEXPECT_OK=${expected_ok}"
           "-DEXPECT_ERRORS=${expected_errors}"
+          "-DEXPECT_WARNINGS=${expected_warnings}"
           "-DEXPECT_MESSAGE=${expected_message}"
           "-DEXPECT_POSITION=${expected_position}"
           -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_json.cmake")
       set_tests_properties(${name} PROPERTIES TIMEOUT 5)
     endfunction()
 
-    add_check_json_test(check_channel_macro_repro channel_macro_repro.mml FALSE 1
-      "channel G, macro *401" "\"line\":4,\"col\":9")
-    add_check_json_test(check_channel_macro_fm_only channel_macro_fm_only.mml TRUE 0 "" "")
-    add_check_json_test(check_channel_direct_psg channel_direct_psg.mml FALSE 1
-      "channel G)" "\"line\":2,\"col\":6")
-    add_check_json_test(check_channel_pan_clear channel_pan_clear.mml TRUE 0 "" "")
-    add_check_json_test(check_channel_nested_loop channel_nested_loop.mml FALSE 1
-      "channel G, macro *403" "\"line\":4,\"col\":6")
-    add_check_json_test(check_channel_lfo channel_lfo.mml FALSE 1
-      "channel G)" "\"line\":2,\"col\":3")
+    add_check_json_test(check_channel_macro_repro channel_macro_repro.mml TRUE 0 1
+      "Panning is not supported for PSG channels: in-app playback will stop here (MDSDRV hardware ignores it) (channel G, macro *401)"
+      "\"line\":4,\"col\":9")
+    add_check_json_test(check_channel_macro_fm_only channel_macro_fm_only.mml TRUE 0 0 "" "")
+    add_check_json_test(check_channel_direct_psg channel_direct_psg.mml FALSE 1 0
+      "Panning not supported for PSG channels" "\"line\":2,\"col\":6")
+    add_check_json_test(check_channel_pan_clear channel_pan_clear.mml TRUE 0 0 "" "")
+    add_check_json_test(check_channel_nested_loop channel_nested_loop.mml TRUE 0 1
+      "Panning is not supported for PSG channels: in-app playback will stop here (MDSDRV hardware ignores it) (channel G, macro *403)"
+      "\"line\":4,\"col\":6")
+    add_check_json_test(check_channel_lfo channel_lfo.mml FALSE 1 0
+      "Panning not supported for PSG channels" "\"line\":2,\"col\":3")
   endif()
 
   if(APPLE)
