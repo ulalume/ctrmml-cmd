@@ -79,6 +79,7 @@ endforeach()
 
 set(CTRMML_CMD_CORE_SOURCES
   src/check_channel_events.cpp
+  src/check_note_range.cpp
   src/check_supplemental.cpp
   src/highlight_tracker.cpp
   src/mml_compile.cpp
@@ -196,6 +197,10 @@ else()
 
   if(BUILD_TESTING)
     function(add_check_json_test name fixture expected_ok expected_errors expected_warnings expected_message expected_position)
+      set(expected_code "playback_unsupported_warning")
+      if(ARGC GREATER 7)
+        list(GET ARGN 0 expected_code)
+      endif()
       add_test(NAME ${name}
         COMMAND ${CMAKE_COMMAND}
           "-DCTRMML_CMD=$<TARGET_FILE:ctrmml-cmd>"
@@ -205,6 +210,7 @@ else()
           "-DEXPECT_WARNINGS=${expected_warnings}"
           "-DEXPECT_MESSAGE=${expected_message}"
           "-DEXPECT_POSITION=${expected_position}"
+          "-DEXPECT_CODE=${expected_code}"
           -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_json.cmake")
       set_tests_properties(${name} PROPERTIES TIMEOUT 5)
     endfunction()
@@ -222,6 +228,13 @@ else()
     add_check_json_test(check_channel_lfo channel_lfo.mml TRUE 0 1
       "LFO is not supported for PSG channels: in-app playback will stop here (MDSDRV hardware interprets it as a noise-mode command) (channel G)"
       "\"line\":2,\"col\":6")
+    add_check_json_test(check_note_range_macro note_range_macro.mml TRUE 0 1
+      "Above the MDSDRV/ROM melodic range: ROM export will fail (95 > 94) (channel A, macro *401)"
+      "\"line\":3,\"col\":9" rom_note_range_warning)
+    add_check_json_test(check_note_range_macro_drum note_range_macro_drum.mml TRUE 0 0 "" "")
+    add_check_json_test(check_note_range_direct_macro note_range_direct_macro.mml TRUE 0 2
+      "Above the MDSDRV/ROM melodic range: ROM export will fail (95 > 94) (channel A, macro *401)"
+      "\"line\":3,\"col\":9" rom_note_range_warning)
 
     add_test(NAME export_paths_native
       COMMAND ${CMAKE_COMMAND}
