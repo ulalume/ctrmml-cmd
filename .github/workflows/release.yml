@@ -98,22 +98,24 @@ jobs:
         if: matrix.os == 'windows-2022'
         shell: pwsh
         run: |
-          git clone --depth 1 https://github.com/madler/zlib zlib
+          # Pinned: the default branch renamed the static library (zlibstatic.lib -> libzs.lib),
+          # which silently broke this step for every tag built after the rename.
+          git clone --depth 1 --branch v1.3.1 https://github.com/madler/zlib zlib
           if ("${{ matrix.target }}" -eq "aarch64") {
             cmake -S zlib -B zlib/build -A ARM64
           } else {
             cmake -S zlib -B zlib/build -A x64
           }
           cmake --build zlib/build --config Release --target zlibstatic
-          $lib = Get-ChildItem -Path zlib/build -Recurse -Filter "zs.lib" | Select-Object -First 1
-          if (-not $lib) {
-            $lib = Get-ChildItem -Path zlib/build -Recurse -Filter "zlibstatic.lib" | Select-Object -First 1
+          $names = @("zs.lib", "zlibstatic.lib", "zlib.lib", "libzs.lib", "libzlibstatic.lib")
+          $lib = $null
+          foreach ($name in $names) {
+            $lib = Get-ChildItem -Path zlib/build -Recurse -Filter $name | Select-Object -First 1
+            if ($lib) { break }
           }
           if (-not $lib) {
-            $lib = Get-ChildItem -Path zlib/build -Recurse -Filter "zlib.lib" | Select-Object -First 1
-          }
-          if (-not $lib) {
-            throw "zlib library not found"
+            $found = (Get-ChildItem -Path zlib/build -Recurse -Filter "*.lib" | ForEach-Object { $_.Name }) -join ", "
+            throw "zlib library not found (searched: $($names -join ', '); present: $found)"
           }
           "ZLIB_LIBRARY=$($lib.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "ZLIB_INCLUDE_DIR=D:/a/ctrmml-cmd/ctrmml-cmd/zlib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
