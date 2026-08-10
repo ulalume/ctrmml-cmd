@@ -191,6 +191,34 @@ namespace
 							<< std::flush;
 	}
 
+	void emit_playback_error(const std::string &message)
+	{
+		std::cout << R"({"type":"playback_error","message":")";
+		for (unsigned char c : message)
+		{
+			switch (c)
+			{
+			case '"': std::cout << "\\\""; break;
+			case '\\': std::cout << "\\\\"; break;
+			case '\n': std::cout << "\\n"; break;
+			case '\r': std::cout << "\\r"; break;
+			case '\t': std::cout << "\\t"; break;
+			default:
+				if (c < 0x20)
+				{
+					char escaped[7];
+					std::snprintf(escaped, sizeof(escaped), "\\u%04x", c);
+					std::cout << escaped;
+				}
+				else
+				{
+					std::cout << static_cast<char>(c);
+				}
+			}
+		}
+		std::cout << "\"}\n" << std::flush;
+	}
+
 }
 
 int main(int argc, char **argv)
@@ -491,14 +519,18 @@ int main(int argc, char **argv)
 				base_dir = display_fs.parent_path().string();
 				display_name = display_fs.string();
 			}
-			if (want_wav)
-				return export_wav_text(input, base_dir, display_name, out_path) ? 0 : 1;
-			return export_vgm_text(input, base_dir, display_name, out_path) ? 0 : 1;
+			auto result = want_wav
+									? export_wav_text(input, base_dir, display_name, out_path)
+									: export_vgm_text(input, base_dir, display_name, out_path);
+			if (!result.ok)
+				std::cerr << result.error << std::endl;
+			return result.ok ? 0 : 1;
 		}
 
-		if (want_wav)
-			return export_wav(file, out_path) ? 0 : 1;
-		return export_vgm(file, out_path) ? 0 : 1;
+		auto result = want_wav ? export_wav(file, out_path) : export_vgm(file, out_path);
+		if (!result.ok)
+			std::cerr << result.error << std::endl;
+		return result.ok ? 0 : 1;
 	}
 
 	if (cmd == "play")
@@ -687,6 +719,8 @@ int main(int argc, char **argv)
 
 		renderer.stop_playback();
 		output.stop();
+		if (follow && !renderer.last_error().empty())
+			emit_playback_error(renderer.last_error());
 		if (reader.joinable())
 		{
 			// Unblock the reader's `std::cin.read` so we can join cleanly

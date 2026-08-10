@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.13)
 project(ctrmml_cmd LANGUAGES C CXX)
 
+include(CTest)
+
 # Allow third-party projects with older cmake_minimum_required.
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
@@ -76,6 +78,7 @@ foreach(tgt mmlc mdslink)
 endforeach()
 
 set(CTRMML_CMD_CORE_SOURCES
+  src/check_channel_events.cpp
   src/check_supplemental.cpp
   src/highlight_tracker.cpp
   src/mml_compile.cpp
@@ -190,6 +193,59 @@ else()
 
   add_executable(ctrmml-cmd src/main.cpp)
   target_link_libraries(ctrmml-cmd PRIVATE ctrmml-cmd-lib)
+
+  if(BUILD_TESTING)
+    function(add_check_json_test name fixture expected_ok expected_errors expected_warnings expected_message expected_position)
+      add_test(NAME ${name}
+        COMMAND ${CMAKE_COMMAND}
+          "-DCTRMML_CMD=$<TARGET_FILE:ctrmml-cmd>"
+          "-DFIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/${fixture}"
+          "-DEXPECT_OK=${expected_ok}"
+          "-DEXPECT_ERRORS=${expected_errors}"
+          "-DEXPECT_WARNINGS=${expected_warnings}"
+          "-DEXPECT_MESSAGE=${expected_message}"
+          "-DEXPECT_POSITION=${expected_position}"
+          -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_json.cmake")
+      set_tests_properties(${name} PROPERTIES TIMEOUT 5)
+    endfunction()
+
+    add_check_json_test(check_channel_macro_repro channel_macro_repro.mml TRUE 0 1
+      "Panning is not supported for PSG channels: in-app playback will stop here (MDSDRV hardware ignores it) (channel G, macro *401)"
+      "\"line\":4,\"col\":9")
+    add_check_json_test(check_channel_macro_fm_only channel_macro_fm_only.mml TRUE 0 0 "" "")
+    add_check_json_test(check_channel_direct_psg channel_direct_psg.mml FALSE 1 0
+      "Panning not supported for PSG channels" "\"line\":2,\"col\":6")
+    add_check_json_test(check_channel_pan_clear channel_pan_clear.mml TRUE 0 0 "" "")
+    add_check_json_test(check_channel_nested_loop channel_nested_loop.mml TRUE 0 1
+      "Panning is not supported for PSG channels: in-app playback will stop here (MDSDRV hardware ignores it) (channel G, macro *403)"
+      "\"line\":4,\"col\":6")
+    add_check_json_test(check_channel_lfo channel_lfo.mml TRUE 0 1
+      "LFO is not supported for PSG channels: in-app playback will stop here (MDSDRV hardware interprets it as a noise-mode command) (channel G)"
+      "\"line\":2,\"col\":6")
+
+    add_test(NAME export_paths_native
+      COMMAND ${CMAKE_COMMAND}
+        "-DCTRMML_CMD=$<TARGET_FILE:ctrmml-cmd>"
+        "-DBAD_FIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/channel_macro_repro.mml"
+        "-DCLEAN_FIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/channel_pan_clear.mml"
+        "-DOUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/export-path-test-native"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/export_paths.cmake")
+    set_tests_properties(export_paths_native PROPERTIES TIMEOUT 20)
+
+    add_executable(wasm-export-api-test
+      tests/wasm_export_api_test.cpp
+      src/ctrmml_cmd_wasm_api.cpp
+      src/preview_synth.cpp)
+    target_include_directories(wasm-export-api-test PRIVATE ${CTRMML_CMD_INCLUDE_DIRS})
+    target_link_libraries(wasm-export-api-test PRIVATE ctrmml-cmd-lib)
+
+    add_test(NAME export_paths_wasm_api
+      COMMAND wasm-export-api-test
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/channel_macro_repro.mml"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/channel_pan_clear.mml"
+        "${CMAKE_CURRENT_BINARY_DIR}/export-path-test-wasm-api")
+    set_tests_properties(export_paths_wasm_api PROPERTIES TIMEOUT 20)
+  endif()
 
   if(APPLE)
     find_library(COREAUDIO_FRAMEWORK CoreAudio)
