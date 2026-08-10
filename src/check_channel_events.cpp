@@ -22,6 +22,13 @@ namespace
 	constexpr uint16_t kFirstDummyTrack = 10;
 	constexpr uint16_t kChannelTrackCount = 16;
 
+	enum class ForbiddenEventKind
+	{
+		NONE,
+		PAN,
+		LFO,
+	};
+
 	bool equals_ascii_case_insensitive(const std::string &value, const char *expected)
 	{
 		size_t i = 0;
@@ -39,12 +46,21 @@ namespace
 			const std::string &display_name,
 			uint16_t channel_id,
 			uint16_t event_track_id,
-			bool via_jump)
+			bool via_jump,
+			ForbiddenEventKind kind)
 	{
 		std::ostringstream message;
-		message << "Panning is not supported for PSG channels: in-app playback will stop here "
-					"(MDSDRV hardware ignores it) (channel "
-					<< static_cast<char>('A' + channel_id);
+		if (kind == ForbiddenEventKind::PAN)
+		{
+			message << "Panning is not supported for PSG channels: in-app playback will stop here "
+						"(MDSDRV hardware ignores it)";
+		}
+		else
+		{
+			message << "LFO is not supported for PSG channels: in-app playback will stop here "
+						"(MDSDRV hardware interprets it as a noise-mode command)";
+		}
+		message << " (channel " << static_cast<char>('A' + channel_id);
 		if (via_jump)
 			message << ", macro *" << event_track_id;
 		message << ')';
@@ -96,7 +112,11 @@ namespace
 	private:
 		void event_hook() override
 		{
-			if (!track_event || !is_forbidden(event) || !seen_events.insert(track_event).second)
+			if (!track_event)
+				return;
+
+			ForbiddenEventKind kind = forbidden_event_kind(event);
+			if (kind == ForbiddenEventKind::NONE || !seen_events.insert(track_event).second)
 				return;
 
 			auto track_it = event_track_ids.find(track_event);
@@ -108,7 +128,8 @@ namespace
 					display_name,
 					channel_id,
 					event_track_id,
-					is_inside_jump()));
+					is_inside_jump(),
+					kind));
 		}
 
 		bool loop_hook() override
@@ -120,25 +141,29 @@ namespace
 		{
 		}
 
-		bool is_forbidden(const Event &candidate)
+		ForbiddenEventKind forbidden_event_kind(const Event &candidate)
 		{
 			if (channel_id < kFirstPsgTrack || channel_id > kLastPsgTrack)
-				return false;
+				return ForbiddenEventKind::NONE;
 			if (candidate.type == Event::PAN)
-				return true;
+				return ForbiddenEventKind::PAN;
 			if (candidate.type == Event::PAN_ENVELOPE)
-				return candidate.param != 0;
+				return candidate.param != 0
+						? ForbiddenEventKind::PAN
+						: ForbiddenEventKind::NONE;
 			if (candidate.type != Event::PLATFORM)
-				return false;
+				return ForbiddenEventKind::NONE;
 
 			try
 			{
 				const Tag &tag = get_song()->get_platform_command(candidate.param);
-				return !tag.empty() && equals_ascii_case_insensitive(tag.front(), "lfo");
+				return !tag.empty() && equals_ascii_case_insensitive(tag.front(), "lfo")
+						? ForbiddenEventKind::LFO
+						: ForbiddenEventKind::NONE;
 			}
 			catch (const std::out_of_range &)
 			{
-				return false;
+				return ForbiddenEventKind::NONE;
 			}
 		}
 

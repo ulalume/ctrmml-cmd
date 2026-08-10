@@ -219,8 +219,9 @@ else()
     add_check_json_test(check_channel_nested_loop channel_nested_loop.mml TRUE 0 1
       "Panning is not supported for PSG channels: in-app playback will stop here (MDSDRV hardware ignores it) (channel G, macro *403)"
       "\"line\":4,\"col\":6")
-    add_check_json_test(check_channel_lfo channel_lfo.mml FALSE 1 0
-      "Panning not supported for PSG channels" "\"line\":2,\"col\":3")
+    add_check_json_test(check_channel_lfo channel_lfo.mml TRUE 0 1
+      "LFO is not supported for PSG channels: in-app playback will stop here (MDSDRV hardware interprets it as a noise-mode command) (channel G)"
+      "\"line\":2,\"col\":6")
 
     add_test(NAME export_paths_native
       COMMAND ${CMAKE_COMMAND}
