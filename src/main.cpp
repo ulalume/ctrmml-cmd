@@ -519,14 +519,18 @@ int main(int argc, char **argv)
 				base_dir = display_fs.parent_path().string();
 				display_name = display_fs.string();
 			}
-			if (want_wav)
-				return export_wav_text(input, base_dir, display_name, out_path) ? 0 : 1;
-			return export_vgm_text(input, base_dir, display_name, out_path) ? 0 : 1;
+			auto result = want_wav
+									? export_wav_text(input, base_dir, display_name, out_path)
+									: export_vgm_text(input, base_dir, display_name, out_path);
+			if (!result.ok)
+				std::cerr << result.error << std::endl;
+			return result.ok ? 0 : 1;
 		}
 
-		if (want_wav)
-			return export_wav(file, out_path) ? 0 : 1;
-		return export_vgm(file, out_path) ? 0 : 1;
+		auto result = want_wav ? export_wav(file, out_path) : export_vgm(file, out_path);
+		if (!result.ok)
+			std::cerr << result.error << std::endl;
+		return result.ok ? 0 : 1;
 	}
 
 	if (cmd == "play")

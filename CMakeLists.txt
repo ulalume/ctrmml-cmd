@@ -221,6 +221,29 @@ else()
       "\"line\":4,\"col\":6")
     add_check_json_test(check_channel_lfo channel_lfo.mml FALSE 1 0
       "Panning not supported for PSG channels" "\"line\":2,\"col\":3")
+
+    add_test(NAME export_paths_native
+      COMMAND ${CMAKE_COMMAND}
+        "-DCTRMML_CMD=$<TARGET_FILE:ctrmml-cmd>"
+        "-DBAD_FIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/channel_macro_repro.mml"
+        "-DCLEAN_FIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/channel_pan_clear.mml"
+        "-DOUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/export-path-test-native"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/export_paths.cmake")
+    set_tests_properties(export_paths_native PROPERTIES TIMEOUT 20)
+
+    add_executable(wasm-export-api-test
+      tests/wasm_export_api_test.cpp
+      src/ctrmml_cmd_wasm_api.cpp
+      src/preview_synth.cpp)
+    target_include_directories(wasm-export-api-test PRIVATE ${CTRMML_CMD_INCLUDE_DIRS})
+    target_link_libraries(wasm-export-api-test PRIVATE ctrmml-cmd-lib)
+
+    add_test(NAME export_paths_wasm_api
+      COMMAND wasm-export-api-test
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/channel_macro_repro.mml"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/channel_pan_clear.mml"
+        "${CMAKE_CURRENT_BINARY_DIR}/export-path-test-wasm-api")
+    set_tests_properties(export_paths_wasm_api PROPERTIES TIMEOUT 20)
   endif()
 
   if(APPLE)

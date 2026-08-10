@@ -2,9 +2,9 @@
 
 #include <cstdio>
 #include <cstring>
-#include <iostream>
 #include <vector>
 
+#include "input.h"
 #include "lowpass_filter.h"
 #include "mml_compile.h"
 #include "vgm_audio_renderer.h"
@@ -112,10 +112,10 @@ namespace
 		return true;
 	}
 
-	bool export_wav_song(const std::shared_ptr<Song> &song, const std::string &out_path)
+	ExportResult export_wav_song(const std::shared_ptr<Song> &song, const std::string &out_path)
 	{
 		if (!song)
-			return false;
+			return {false, "no compiled song"};
 
 		VgmAudioRenderer renderer(song, 0, false);
 		renderer.setup_stream(kWavSampleRate);
@@ -161,6 +161,12 @@ namespace
 			}
 		}
 
+		// get_sample() intentionally catches playback exceptions for realtime
+		// playback and reports them through last_error(). Export must turn that
+		// normal early stop into a failure before it creates a partial WAV.
+		if (!renderer.last_error().empty())
+			return {false, renderer.last_error()};
+
 		// Apply fade-out if the song loops
 		unsigned int total_frames = frames_rendered;
 		if (has_loop)
@@ -191,19 +197,19 @@ namespace
 			total_frames += fade_rendered;
 		}
 
+		if (!renderer.last_error().empty())
+			return {false, renderer.last_error()};
+
 		// Write WAV file
 		FILE *out = fopen(out_path.c_str(), "wb");
 		if (!out)
-		{
-			std::cerr << "unable to open output file" << std::endl;
-			return false;
-		}
+			return {false, "unable to open output file"};
 
 		if (!write_wav_header(out, total_frames))
 		{
-			std::cerr << "failed to write wav header" << std::endl;
 			fclose(out);
-			return false;
+			std::remove(out_path.c_str());
+			return {false, "failed to write wav header"};
 		}
 
 		// Write PCM data in chunks (little-endian conversion)
@@ -226,35 +232,49 @@ namespace
 
 			if (!write_ok)
 			{
-				std::cerr << "failed to write wav data" << std::endl;
 				fclose(out);
-				return false;
+				std::remove(out_path.c_str());
+				return {false, "failed to write wav data"};
 			}
 		}
 
-		fclose(out);
-		return true;
+		if (fclose(out) != 0)
+		{
+			std::remove(out_path.c_str());
+			return {false, "failed to close wav file"};
+		}
+		return {true, {}};
+	}
+
+	ExportResult safe_export_wav_song(const std::shared_ptr<Song> &song, const std::string &out_path)
+	{
+		try
+		{
+			return export_wav_song(song, out_path);
+		}
+		catch (InputError &e)
+		{
+			return {false, e.what()};
+		}
+		catch (std::exception &e)
+		{
+			return {false, e.what()};
+		}
 	}
 }
 
-bool export_wav(const std::string &in_path, const std::string &out_path)
+ExportResult export_wav(const std::string &in_path, const std::string &out_path)
 {
 	auto compile = compile_mml_file(in_path);
 	if (!compile.song)
-	{
-		std::cerr << compile.error << std::endl;
-		return false;
-	}
-	return export_wav_song(compile.song, out_path);
+		return {false, compile.error};
+	return safe_export_wav_song(compile.song, out_path);
 }
 
-bool export_wav_text(const std::string &text, const std::string &base_path, const std::string &display_name, const std::string &out_path)
+ExportResult export_wav_text(const std::string &text, const std::string &base_path, const std::string &display_name, const std::string &out_path)
 {
 	auto compile = compile_mml_text(text, base_path, display_name);
 	if (!compile.song)
-	{
-		std::cerr << compile.error << std::endl;
-		return false;
-	}
-	return export_wav_song(compile.song, out_path);
+		return {false, compile.error};
+	return safe_export_wav_song(compile.song, out_path);
 }

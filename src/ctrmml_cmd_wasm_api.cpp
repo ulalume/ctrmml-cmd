@@ -362,36 +362,42 @@ extern "C" int32_t ctrmml_cmd_wasm_find_cursor_tick(uint32_t line, uint32_t col)
 // ---------------------------------------------------------------------------
 
 extern "C" int ctrmml_cmd_wasm_export_vgm(const char *text,
-																					const char *base_dir,
-																					const char *out_path)
+																			const char *base_dir,
+																			const char *out_path)
 {
+	g_last_error.clear();
+
 	if (!text || !base_dir || !out_path)
 	{
 		set_error("invalid input");
 		return 1;
 	}
 
-	if (!export_vgm_text(text, base_dir, "input.mml", out_path))
+	auto result = export_vgm_text(text, base_dir, "input.mml", out_path);
+	if (!result.ok)
 	{
-		set_error("VGM export failed");
+		set_error(result.error);
 		return 1;
 	}
 	return 0;
 }
 
 extern "C" int ctrmml_cmd_wasm_export_wav(const char *text,
-																					const char *base_dir,
-																					const char *out_path)
+																			const char *base_dir,
+																			const char *out_path)
 {
+	g_last_error.clear();
+
 	if (!text || !base_dir || !out_path)
 	{
 		set_error("invalid input");
 		return 1;
 	}
 
-	if (!export_wav_text(text, base_dir, "input.mml", out_path))
+	auto result = export_wav_text(text, base_dir, "input.mml", out_path);
+	if (!result.ok)
 	{
-		set_error("WAV export failed");
+		set_error(result.error);
 		return 1;
 	}
 	return 0;
