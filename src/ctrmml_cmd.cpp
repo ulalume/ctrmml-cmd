@@ -7,7 +7,6 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <set>
 #include <sstream>
 #include <string_view>
 
@@ -19,6 +18,7 @@
 
 #include "input.h"
 #include "check_channel_events.h"
+#include "check_note_range.h"
 #include "check_supplemental.h"
 #include "mml_compile.h"
 #include "vgm_audio_renderer.h"
@@ -225,107 +225,6 @@ namespace
 		return warnings;
 	}
 
-	constexpr int kMdsdrvRomNoteMin = 0;
-	constexpr int kMdsdrvRomNoteExclusiveMax = 94; // SLR - NOTE = 0xe0 - 0x82
-	constexpr int kMegadriveChannelTrackCount = 16;
-
-	ctrmml_cmd::CheckMessage make_message_from_ref(
-			const std::shared_ptr<InputRef> &ref,
-			const std::string &display_name,
-			const std::string &message,
-			const std::string &code,
-			uint32_t length = 1)
-	{
-		ctrmml_cmd::CheckMessage out{};
-		out.message = message;
-		out.code = code;
-		out.length = length;
-		if (ref)
-		{
-			out.path = ref->get_filename().empty() ? display_name : ref->get_filename();
-			// InputRef stores 0-indexed line and 0-indexed column; JSON consumers expect 1-indexed
-			out.line = ref->get_line() + 1;
-			out.col = ref->get_column() + 1;
-		}
-		else
-		{
-			out.path = display_name;
-		}
-		return out;
-	}
-
-	std::vector<ctrmml_cmd::CheckMessage> collect_rom_note_range_warnings(
-			const std::shared_ptr<Song> &song,
-			const std::string &display_name)
-	{
-		std::vector<ctrmml_cmd::CheckMessage> warnings;
-		std::set<int16_t> drum_subroutine_tracks;
-
-		for (auto &[track_id, track] : song->get_track_map())
-		{
-			(void)track_id;
-			bool drum_mode_enabled = false;
-			for (unsigned long i = 0; i < track.get_event_count(); ++i)
-			{
-				auto &event = track.get_event(i);
-				if (event.type == Event::DRUM_MODE)
-				{
-					drum_mode_enabled = event.param != 0;
-					continue;
-				}
-				if (event.type == Event::NOTE && drum_mode_enabled)
-					drum_subroutine_tracks.insert(event.param);
-			}
-		}
-
-		for (auto &[track_id, track] : song->get_track_map())
-		{
-			if (track_id >= kMegadriveChannelTrackCount)
-				continue;
-			if (drum_subroutine_tracks.count(static_cast<int16_t>(track_id)))
-				continue;
-			(void)track_id;
-			bool in_drum_mode = false;
-			for (unsigned long i = 0; i < track.get_event_count(); ++i)
-			{
-				auto &event = track.get_event(i);
-				if (event.type == Event::DRUM_MODE)
-				{
-					in_drum_mode = event.param != 0;
-					continue;
-				}
-				if (event.type != Event::NOTE || in_drum_mode)
-					continue;
-
-				if (event.param < kMdsdrvRomNoteMin)
-				{
-					warnings.push_back(make_message_from_ref(
-							event.reference,
-							display_name,
-							"Below the MDSDRV/ROM melodic range: lowest useful note is o1 c. Lower notes clamp to o1 c ("
-									+ std::to_string(event.param)
-									+ " < "
-									+ std::to_string(kMdsdrvRomNoteMin)
-									+ ").",
-							"rom_note_range_warning"));
-				}
-				else if (event.param >= kMdsdrvRomNoteExclusiveMax)
-				{
-					warnings.push_back(make_message_from_ref(
-							event.reference,
-							display_name,
-							"Above the MDSDRV/ROM melodic range: ROM export will fail ("
-									+ std::to_string(event.param)
-									+ " > "
-									+ std::to_string(kMdsdrvRomNoteExclusiveMax)
-									+ ").",
-							"rom_note_range_warning"));
-				}
-			}
-		}
-		return warnings;
-	}
-
 	std::string format_message_line(const ctrmml_cmd::CheckMessage &msg)
 	{
 		if (!msg.raw.empty())
@@ -437,7 +336,7 @@ namespace
 		report.errors.insert(report.errors.end(), supplemental_errors.begin(), supplemental_errors.end());
 		auto channel_warnings = ctrmml_cmd::collect_channel_event_warnings(*compile.song, display_name);
 		report.warnings.insert(report.warnings.end(), channel_warnings.begin(), channel_warnings.end());
-		auto range_warnings = collect_rom_note_range_warnings(compile.song, display_name);
+		auto range_warnings = ctrmml_cmd::collect_note_range_warnings(*compile.song, display_name);
 		report.warnings.insert(report.warnings.end(), range_warnings.begin(), range_warnings.end());
 
 		if (report.errors.empty())

@@ -45,9 +45,13 @@ if(NOT "${EXPECT_MESSAGE}" STREQUAL "")
   endif()
 endif()
 
+if(NOT DEFINED EXPECT_CODE OR "${EXPECT_CODE}" STREQUAL "")
+  set(EXPECT_CODE "playback_unsupported_warning")
+endif()
+
 if(EXPECT_WARNINGS GREATER 0)
   set(expected_warning
-    "{\"message\":\"${EXPECT_MESSAGE}\",\"path\":\"${FIXTURE}\",${EXPECT_POSITION},\"length\":1,\"code\":\"playback_unsupported_warning\"}")
+    "{\"message\":\"${EXPECT_MESSAGE}\",\"path\":\"${FIXTURE}\",${EXPECT_POSITION},\"length\":1,\"code\":\"${EXPECT_CODE}\"}")
   string(FIND "${warnings_json}" "${expected_warning}" warning_shape_position)
   if(warning_shape_position EQUAL -1)
     message(FATAL_ERROR
