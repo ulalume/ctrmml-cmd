@@ -3,11 +3,6 @@
 #include <algorithm>
 #include <ymfm_opn.h>
 
-namespace
-{
-	constexpr int32_t kYmfmOutputScale = 2;
-}
-
 class YmfmYm2612Interface : public ymfm::ymfm_interface
 {
 };
@@ -17,10 +12,11 @@ class YmfmYm2612Chip : public ymfm::ym2612
 public:
 	using ymfm::ym2612::ym2612;
 
-	void generate_masked(output_data *output, uint32_t numsamples, uint32_t chanmask)
+	void generate_masked(output_data *output, uint32_t numsamples, uint32_t chanmask,
+			Ym2612ChipType chip_type)
 	{
 		chanmask &= fm_engine::ALL_CHANNELS;
-		if (chanmask == fm_engine::ALL_CHANNELS)
+		if (chip_type == Ym2612ChipType::Ym2612 && chanmask == fm_engine::ALL_CHANNELS)
 		{
 			generate(output, numsamples);
 			return;
@@ -29,10 +25,30 @@ public:
 		{
 			m_fm.clock(fm_engine::ALL_CHANNELS);
 
+			const int last_fm_channel = m_dac_enable ? 5 : 6;
+			if (chip_type == Ym2612ChipType::Ym3438)
+			{
+				if (!m_dac_enable)
+				{
+					m_fm.output(output->clear(), 5, 256, chanmask);
+				}
+				else
+				{
+					const int32_t dacval = int16_t(m_dac_data << 7) >> 7;
+					output->data[0] = (chanmask & (1u << 5)) != 0 &&
+							m_fm.regs().ch_output_0(0x102) ? dacval : 0;
+					output->data[1] = (chanmask & (1u << 5)) != 0 &&
+							m_fm.regs().ch_output_1(0x102) ? dacval : 0;
+					m_fm.output(*output, 5, 256, chanmask & ~(1u << 5));
+				}
+
+				output->data[0] = (output->data[0] * 128) / 6;
+				output->data[1] = (output->data[1] * 128) / 6;
+				continue;
+			}
+
 			output->clear();
 			output_data temp;
-
-			const int last_fm_channel = m_dac_enable ? 5 : 6;
 			for (int chan = 0; chan < last_fm_channel; chan++)
 			{
 				if ((chanmask & (1u << chan)) == 0)
@@ -56,8 +72,8 @@ public:
 	}
 };
 
-YmfmYm2612Device::YmfmYm2612Device(uint32_t clock_in)
-	: clock(clock_in), mute_mask(0), port0_address(0), key_state{},
+YmfmYm2612Device::YmfmYm2612Device(uint32_t clock_in, Ym2612ChipType chip_type_in)
+	: clock(clock_in), mute_mask(0), chip_type(chip_type_in), port0_address(0), key_state{},
 	  interface(std::make_unique<YmfmYm2612Interface>()),
 	  chip(std::make_unique<YmfmYm2612Chip>(*interface))
 {
@@ -124,15 +140,25 @@ void YmfmYm2612Device::render(DEV_SMPL **outputs, uint32_t samples)
 	YmfmYm2612Chip::output_data sample{};
 	for (uint32_t index = 0; index < samples; index++)
 	{
-		chip->generate_masked(&sample, 1, active_mask);
-		outputs[0][index] = sample.data[0] * kYmfmOutputScale;
-		outputs[1][index] = sample.data[1] * kYmfmOutputScale;
+		chip->generate_masked(&sample, 1, active_mask, chip_type);
+		outputs[0][index] = sample.data[0];
+		outputs[1][index] = sample.data[1];
 	}
 }
 
 void YmfmYm2612Device::set_mute_mask(uint32_t mask)
 {
 	mute_mask = mask & YmfmYm2612Chip::fm_engine::ALL_CHANNELS;
+}
+
+void YmfmYm2612Device::set_chip_type(Ym2612ChipType chip_type_in)
+{
+	chip_type = chip_type_in;
+}
+
+Ym2612ChipType YmfmYm2612Device::get_chip_type() const
+{
+	return chip_type;
 }
 
 void YmfmYm2612Device::stream_update(void *info, UINT32 samples, DEV_SMPL **outputs)

@@ -8,10 +8,12 @@ CLI for ctrmml playback, export, and highlight streaming.
   - Options:
     - `--start line:col` (play from cursor; uses nearest event at/after this position)
     - `--follow` (emit highlight updates while playing)
+    - `--chip-type ym2612|ym3438` (ladder DAC by default, or clean YM3438 output)
 - `stop`
 - `export <path>` or `export --stdin --path <path>`
   - `--vgm` or `--wav`
   - `--out <path>` (defaults to same dir/name with .vgm/.wav)
+  - `--chip-type ym2612|ym3438` (applies to WAV rendering; default `ym2612`)
 - `mdslink [options] <input files...>`
   - Options:
     - `-o <mdsseq.bin> <mdspcm.bin>` or `--output <mdsseq.bin> <mdspcm.bin>`

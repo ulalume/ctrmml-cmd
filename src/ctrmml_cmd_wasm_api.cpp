@@ -8,9 +8,10 @@
 #include <vector>
 
 #include "ctrmml_cmd.h"
-#include "lowpass_filter.h"
+#include "dc_blocker.h"
 #include "highlight_tracker.h"
 #include "input.h"
+#include "lowpass_filter.h"
 #include "mdslink_tool.h"
 #include "mml_compile.h"
 #include "platform/mdsdrv.h"
@@ -26,6 +27,8 @@ namespace
 	const float kInvSampleScale = 1.0f / 8388608.0f;
 	constexpr int kMaxChannels = 16;
 	LowPassFilter g_lpf;
+	DcBlocker g_dc_blocker;
+	Ym2612ChipType g_ym2612_chip_type = Ym2612ChipType::Ym2612;
 
 	CompileResult g_compile;
 	std::unique_ptr<VgmAudioRenderer> g_renderer;
@@ -54,8 +57,10 @@ namespace
 		try
 		{
 			g_renderer = std::make_unique<VgmAudioRenderer>(g_compile.song, start_ticks, false);
+			g_renderer->set_ym2612_chip_type(g_ym2612_chip_type);
 			g_renderer->setup_stream(sample_rate);
 			g_lpf.init(sample_rate);
+			g_dc_blocker.reset();
 			return true;
 		}
 		catch (std::exception &e)
@@ -254,6 +259,17 @@ extern "C" void ctrmml_cmd_wasm_set_mute_mask(int32_t chip_id, uint32_t mask)
 		g_renderer->set_mute_mask(chip_id, mask);
 }
 
+extern "C" void ctrmml_cmd_wasm_set_ym2612_chip_type(int chip_type)
+{
+	g_ym2612_chip_type = chip_type == static_cast<int>(Ym2612ChipType::Ym3438)
+			? Ym2612ChipType::Ym3438
+			: Ym2612ChipType::Ym2612;
+	if (g_renderer)
+		g_renderer->set_ym2612_chip_type(g_ym2612_chip_type);
+	if (g_preview)
+		g_preview->set_ym2612_chip_type(g_ym2612_chip_type);
+}
+
 extern "C" void ctrmml_cmd_wasm_stop_playback()
 {
 	if (g_renderer)
@@ -309,6 +325,7 @@ extern "C" int ctrmml_cmd_wasm_render_audio(float *output, int frames)
 		g_lpf.apply(scratch[i].L, scratch[i].R);
 		float l = scratch[i].L * kInvSampleScale;
 		float r = scratch[i].R * kInvSampleScale;
+		g_dc_blocker.process(l, r);
 		if (l > 1.0f) l = 1.0f;
 		if (l < -1.0f) l = -1.0f;
 		if (r > 1.0f) r = 1.0f;
@@ -394,7 +411,8 @@ extern "C" int ctrmml_cmd_wasm_export_wav(const char *text,
 		return 1;
 	}
 
-	auto result = export_wav_text(text, base_dir, "input.mml", out_path);
+	auto result = export_wav_text(text, base_dir, "input.mml", out_path,
+			g_ym2612_chip_type);
 	if (!result.ok)
 	{
 		set_error(result.error);
@@ -968,8 +986,10 @@ extern "C" void ctrmml_cmd_wasm_set_lowpass_filter(int enabled, float cutoff_hz)
 extern "C" void preview_init(uint32_t sample_rate)
 {
 	g_preview = std::make_unique<PreviewSynth>();
+	g_preview->set_ym2612_chip_type(g_ym2612_chip_type);
 	g_preview->init(sample_rate);
 	g_lpf.init(sample_rate);
+	g_dc_blocker.reset();
 }
 
 extern "C" void preview_deinit()

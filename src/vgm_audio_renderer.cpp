@@ -16,7 +16,7 @@ namespace
 
 SoundDevice::SoundDevice()
 		: resmpl{}, dev_init(false), resmpl_init(false), chip_type(CHIP_NONE),
-		  sample_rate(0), volume(0x100)
+		  sample_rate(0), volume(kDefaultOutputVolume), ym2612_chip_type(Ym2612ChipType::Ym2612)
 {
 }
 
@@ -43,6 +43,11 @@ void SoundDevice::reset_device()
 void SoundDevice::set_default_volume(uint16_t vol)
 {
 	volume = vol;
+}
+
+uint16_t SoundDevice::get_default_volume() const
+{
+	return volume;
 }
 
 void SoundDevice::set_rate(uint32_t rate)
@@ -88,7 +93,7 @@ void SoundDevice::init_ym2612(uint32_t freq)
 {
 	reset_device();
 
-	ymfm_ym2612 = std::make_unique<YmfmYm2612Device>(freq);
+	ymfm_ym2612 = std::make_unique<YmfmYm2612Device>(freq, ym2612_chip_type);
 	dev_init = true;
 	chip_type = CHIP_YM2612;
 }
@@ -126,8 +131,16 @@ void SoundDevice::set_mute_mask(uint32_t mask)
 		mame_sn76496->set_mute_mask(mask);
 }
 
+void SoundDevice::set_ym2612_chip_type(Ym2612ChipType chip_type_in)
+{
+	ym2612_chip_type = chip_type_in;
+	if (ymfm_ym2612)
+		ymfm_ym2612->set_chip_type(chip_type_in);
+}
+
 VgmAudioRenderer::VgmAudioRenderer(std::shared_ptr<Song> song, uint32_t start_position, bool log_messages)
-		: sample_rate(1), delta_time(0), sample_delta(1), finished(false), log_messages(log_messages), last_error_message(""), song(std::move(song))
+		: sample_rate(1), delta_time(0), sample_delta(1), finished(false), log_messages(log_messages),
+		  ym2612_chip_type(Ym2612ChipType::Ym2612), last_error_message(""), song(std::move(song))
 {
 	driver = this->song->get_platform()->get_driver(1, (VGM_Interface *)this);
 	driver.get()->play_song(*this->song.get());
@@ -149,6 +162,19 @@ void VgmAudioRenderer::set_mute_mask(int chip_id, uint32_t mask)
 	auto it = devices.find(chip_id);
 	if (it != devices.end())
 		it->second.set_mute_mask(mask);
+}
+
+void VgmAudioRenderer::set_ym2612_chip_type(Ym2612ChipType chip_type)
+{
+	ym2612_chip_type = chip_type;
+	auto it = devices.find(DEVID_YM2612);
+	if (it != devices.end())
+		it->second.set_ym2612_chip_type(chip_type);
+}
+
+Ym2612ChipType VgmAudioRenderer::get_ym2612_chip_type() const
+{
+	return ym2612_chip_type;
 }
 
 void VgmAudioRenderer::setup_stream(uint32_t sample_rate)
@@ -302,11 +328,12 @@ void VgmAudioRenderer::poke32(uint32_t offset, uint32_t data)
 	switch (offset)
 	{
 	case 0x0c:
-		devices[DEVID_SN76496].set_default_volume(0x80);
+		devices[DEVID_SN76496].set_default_volume(SoundDevice::kPsgOutputVolume);
 		devices[DEVID_SN76496].init_sn76489(clock);
 		devices[DEVID_SN76496].set_rate(sample_rate);
 		break;
 	case 0x2c:
+		devices[DEVID_YM2612].set_ym2612_chip_type(ym2612_chip_type);
 		devices[DEVID_YM2612].init_ym2612(clock);
 		devices[DEVID_YM2612].set_rate(sample_rate);
 		break;
