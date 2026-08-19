@@ -11,13 +11,16 @@
 #include "vgm.h"
 #include "song.h"
 #include "driver.h"
+#include "ymfm_ym2612_device.h"
 
-class YmfmYm2612Device;
 class MameSn76496Device;
 
 class SoundDevice
 {
 public:
+	static constexpr uint16_t kPsgOutputVolume = 0x80;
+	static constexpr uint16_t kDefaultOutputVolume = 0x100;
+
 	SoundDevice();
 	~SoundDevice();
 
@@ -31,6 +34,8 @@ public:
 	void write(uint8_t port, uint16_t addr, uint16_t data);
 	void get_sample(WAVE_32BS *output, int count);
 	void set_mute_mask(uint32_t mask);
+	void set_ym2612_chip_type(Ym2612ChipType chip_type);
+	uint16_t get_default_volume() const;
 
 private:
 	void reset_device();
@@ -46,6 +51,7 @@ private:
 	} chip_type;
 	uint32_t sample_rate;
 	uint16_t volume;
+	Ym2612ChipType ym2612_chip_type;
 	std::unique_ptr<YmfmYm2612Device> ymfm_ym2612;
 	std::unique_ptr<MameSn76496Device> mame_sn76496;
 };
@@ -64,6 +70,8 @@ public:
 	bool is_finished() const;
 	const std::string &last_error() const;
 	void set_mute_mask(int chip_id, uint32_t mask);
+	void set_ym2612_chip_type(Ym2612ChipType chip_type);
+	Ym2612ChipType get_ym2612_chip_type() const;
 	int get_loop_count() const;
 	//! Hot-swap to a freshly compiled song without resetting the chip
 	//! emulators or the driver's channel objects. Forwards to
@@ -108,6 +116,7 @@ private:
 	float sample_delta;
 	bool finished;
 	bool log_messages;
+	Ym2612ChipType ym2612_chip_type;
 	std::string last_error_message;
 
 	std::map<int, SoundDevice> devices;

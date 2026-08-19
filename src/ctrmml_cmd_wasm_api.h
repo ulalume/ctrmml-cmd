@@ -21,6 +21,8 @@ extern "C"
 	int ctrmml_cmd_wasm_is_playing();
 	int ctrmml_cmd_wasm_render_audio(float *output, int frames);
 	void ctrmml_cmd_wasm_set_mute_mask(int32_t chip_id, uint32_t mask);
+	// 0 = YM2612 ladder DAC (default), 1 = clean YM3438 DAC.
+	void ctrmml_cmd_wasm_set_ym2612_chip_type(int chip_type);
 
 	// Recompile and (if playing) rebuild the audio renderer at the current
 	// player tick. Returns 0 on success, 1 on compile error (existing

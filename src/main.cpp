@@ -136,17 +136,32 @@ namespace
 		}
 	}
 
+	bool parse_chip_type(const std::string &value, Ym2612ChipType &chip_type)
+	{
+		if (value == "ym2612")
+		{
+			chip_type = Ym2612ChipType::Ym2612;
+			return true;
+		}
+		if (value == "ym3438")
+		{
+			chip_type = Ym2612ChipType::Ym3438;
+			return true;
+		}
+		return false;
+	}
+
 	void print_usage()
 	{
 		std::cerr << "Usage:\n"
-							<< "  ctrmml-cmd play <file> [--start line:col] [--follow]\n"
+							<< "  ctrmml-cmd play <file> [--start line:col] [--follow] [--chip-type ym2612|ym3438]\n"
 							<< "  ctrmml-cmd play --stdin --path <path> [--follow] [--hot-reload]\n"
 							<< "  ctrmml-cmd stop\n"
 							<< "  ctrmml-cmd check [--json] <file>\n"
 							<< "  ctrmml-cmd find-cursor-tick [--stdin --path <path>] [--line N --col M] <file>\n"
 							<< "  ctrmml-cmd mdslink [options] <input files...>\n"
 							<< "  ctrmml-cmd quickrom [--out rom.bin] <input files...>\n"
-							<< "  ctrmml-cmd export <file> --vgm|--wav [--out path]\n";
+							<< "  ctrmml-cmd export <file> --vgm|--wav [--out path] [--chip-type ym2612|ym3438]\n";
 	}
 
 #if !defined(_WIN32)
@@ -487,6 +502,7 @@ int main(int argc, char **argv)
 		bool want_wav = false;
 		bool use_stdin = (file == "--stdin" || file == "-");
 		std::string display_path;
+		Ym2612ChipType chip_type = Ym2612ChipType::Ym2612;
 		for (int i = 3; i < argc; ++i)
 		{
 			std::string arg = argv[i];
@@ -498,6 +514,14 @@ int main(int argc, char **argv)
 				out_path = argv[++i];
 			else if (arg == "--path" && i + 1 < argc)
 				display_path = argv[++i];
+			else if (arg == "--chip-type" && i + 1 < argc)
+			{
+				if (!parse_chip_type(argv[++i], chip_type))
+				{
+					std::cerr << "invalid chip type (expected ym2612 or ym3438)\n";
+					return 1;
+				}
+			}
 		}
 
 		std::filesystem::path path_for_out = use_stdin && !display_path.empty()
@@ -520,14 +544,14 @@ int main(int argc, char **argv)
 				display_name = display_fs.string();
 			}
 			auto result = want_wav
-									? export_wav_text(input, base_dir, display_name, out_path)
+									? export_wav_text(input, base_dir, display_name, out_path, chip_type)
 									: export_vgm_text(input, base_dir, display_name, out_path);
 			if (!result.ok)
 				std::cerr << result.error << std::endl;
 			return result.ok ? 0 : 1;
 		}
 
-		auto result = want_wav ? export_wav(file, out_path) : export_vgm(file, out_path);
+		auto result = want_wav ? export_wav(file, out_path, chip_type) : export_vgm(file, out_path);
 		if (!result.ok)
 			std::cerr << result.error << std::endl;
 		return result.ok ? 0 : 1;
@@ -542,6 +566,7 @@ int main(int argc, char **argv)
 		bool hot_reload = false;
 		bool use_stdin = (file == "--stdin" || file == "-");
 		std::string display_path;
+		Ym2612ChipType chip_type = Ym2612ChipType::Ym2612;
 		for (int i = 3; i < argc; ++i)
 		{
 			std::string arg = argv[i];
@@ -560,6 +585,14 @@ int main(int argc, char **argv)
 			else if (arg == "--path" && i + 1 < argc)
 			{
 				display_path = argv[++i];
+			}
+			else if (arg == "--chip-type" && i + 1 < argc)
+			{
+				if (!parse_chip_type(argv[++i], chip_type))
+				{
+					std::cerr << "invalid chip type (expected ym2612 or ym3438)\n";
+					return 1;
+				}
 			}
 		}
 
@@ -622,6 +655,7 @@ int main(int argc, char **argv)
 		}
 
 		VgmAudioRenderer renderer(compile.song, start_ticks);
+		renderer.set_ym2612_chip_type(chip_type);
 		renderer.setup_stream(44100);
 
 #if !defined(_WIN32)

@@ -76,10 +76,14 @@ int main(int argc, char **argv)
 	ok &= expect_failure("wasm VGM", ctrmml_cmd_wasm_export_vgm, bad_text, base_dir, output_dir / "wasm-bad.vgm");
 	ok &= expect_success("wasm WAV", ctrmml_cmd_wasm_export_wav, clean_text, base_dir, output_dir / "wasm-clean.wav");
 	ok &= expect_success("wasm VGM", ctrmml_cmd_wasm_export_vgm, clean_text, base_dir, output_dir / "wasm-clean.vgm");
+	ctrmml_cmd_wasm_set_ym2612_chip_type(1);
+	ok &= expect_success("wasm YM3438 WAV", ctrmml_cmd_wasm_export_wav, clean_text, base_dir, output_dir / "wasm-clean-ym3438.wav");
+	ctrmml_cmd_wasm_set_ym2612_chip_type(0);
 
 	std::filesystem::remove(output_dir / "wasm-bad.wav");
 	std::filesystem::remove(output_dir / "wasm-bad.vgm");
 	std::filesystem::remove(output_dir / "wasm-clean.wav");
 	std::filesystem::remove(output_dir / "wasm-clean.vgm");
+	std::filesystem::remove(output_dir / "wasm-clean-ym3438.wav");
 	return ok ? 0 : 1;
 }
