@@ -74,6 +74,7 @@ extern "C"
 	void preview_load_psg(const uint8_t *data, int len);
 	void preview_set_mode(int mode);
 	void preview_note_on(uint8_t midi_note, uint8_t velocity);
+	void preview_note_on_attenuation(uint8_t midi_note, uint8_t tl_attenuation);
 	void preview_note_off(uint8_t midi_note);
 	void preview_all_notes_off();
 

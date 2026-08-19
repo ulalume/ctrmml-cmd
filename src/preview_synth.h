@@ -32,6 +32,7 @@ public:
 
 	// Note on/off (MIDI note number, 0-127)
 	void note_on(uint8_t midi_note, uint8_t velocity);
+	void note_on_attenuation(uint8_t midi_note, uint8_t tl_attenuation);
 	void note_off(uint8_t midi_note);
 	void all_notes_off();
 
@@ -45,9 +46,11 @@ private:
 	void fm_load_instrument(int ch);
 	void fm_set_pitch(int ch, uint8_t midi_note);
 	void fm_set_volume(int ch, uint8_t velocity);
+	void fm_set_volume_attenuation(int ch, uint8_t tl_attenuation);
 	void fm_key_on(int ch);
 	void fm_key_off(int ch);
 	int fm_allocate_voice();
+	void note_on_impl(uint8_t midi_note, uint8_t volume, bool direct_attenuation);
 
 	// PSG helpers
 	void psg_write(uint8_t data);
