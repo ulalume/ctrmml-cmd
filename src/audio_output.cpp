@@ -46,6 +46,7 @@ bool AudioOutput::start(VgmAudioRenderer *renderer_in, uint32_t sample_rate)
 	}
 
 	lpf.init(sample_rate);
+	dc_blocker.reset();
 
 	if (ma_device_start(device) != MA_SUCCESS)
 	{
@@ -107,6 +108,7 @@ void AudioOutput::fill(int16_t *output, uint32_t frames)
 		lpf.apply(scratch[i].L, scratch[i].R);
 		float l = scratch[i].L * kInvSampleScale;
 		float r = scratch[i].R * kInvSampleScale;
+		dc_blocker.process(l, r);
 		if (l > 1.0f)
 			l = 1.0f;
 		if (l < -1.0f)

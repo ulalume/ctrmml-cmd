@@ -4,6 +4,7 @@
 #include <cstring>
 #include <vector>
 
+#include "dc_blocker.h"
 #include "input.h"
 #include "lowpass_filter.h"
 #include "mml_compile.h"
@@ -112,16 +113,20 @@ namespace
 		return true;
 	}
 
-	ExportResult export_wav_song(const std::shared_ptr<Song> &song, const std::string &out_path)
+	ExportResult export_wav_song(const std::shared_ptr<Song> &song, const std::string &out_path,
+			Ym2612ChipType chip_type)
 	{
 		if (!song)
 			return {false, "no compiled song"};
 
 		VgmAudioRenderer renderer(song, 0, false);
+		renderer.set_ym2612_chip_type(chip_type);
 		renderer.setup_stream(kWavSampleRate);
 
 		LowPassFilter lpf;
 		lpf.init(kWavSampleRate);
+		DcBlocker dc_blocker;
+		dc_blocker.reset();
 
 		// Pass 1: render to memory to determine total length and handle loops
 		const unsigned int fade_frames = kWavSampleRate * kWavFadeSeconds;
@@ -144,6 +149,7 @@ namespace
 				lpf.apply(scratch[i].L, scratch[i].R);
 				float l = scratch[i].L * kInvSampleScale;
 				float r = scratch[i].R * kInvSampleScale;
+				dc_blocker.process(l, r);
 				if (l > 1.0f) l = 1.0f;
 				if (l < -1.0f) l = -1.0f;
 				if (r > 1.0f) r = 1.0f;
@@ -185,6 +191,7 @@ namespace
 					float fade = 1.0f - static_cast<float>(fade_rendered + i) / static_cast<float>(fade_frames);
 					float l = scratch[i].L * kInvSampleScale * fade;
 					float r = scratch[i].R * kInvSampleScale * fade;
+					dc_blocker.process(l, r);
 					if (l > 1.0f) l = 1.0f;
 					if (l < -1.0f) l = -1.0f;
 					if (r > 1.0f) r = 1.0f;
@@ -246,11 +253,12 @@ namespace
 		return {true, {}};
 	}
 
-	ExportResult safe_export_wav_song(const std::shared_ptr<Song> &song, const std::string &out_path)
+	ExportResult safe_export_wav_song(const std::shared_ptr<Song> &song, const std::string &out_path,
+			Ym2612ChipType chip_type)
 	{
 		try
 		{
-			return export_wav_song(song, out_path);
+			return export_wav_song(song, out_path, chip_type);
 		}
 		catch (InputError &e)
 		{
@@ -263,18 +271,21 @@ namespace
 	}
 }
 
-ExportResult export_wav(const std::string &in_path, const std::string &out_path)
+ExportResult export_wav(const std::string &in_path, const std::string &out_path,
+		Ym2612ChipType chip_type)
 {
 	auto compile = compile_mml_file(in_path);
 	if (!compile.song)
 		return {false, compile.error};
-	return safe_export_wav_song(compile.song, out_path);
+	return safe_export_wav_song(compile.song, out_path, chip_type);
 }
 
-ExportResult export_wav_text(const std::string &text, const std::string &base_path, const std::string &display_name, const std::string &out_path)
+ExportResult export_wav_text(const std::string &text, const std::string &base_path,
+		const std::string &display_name, const std::string &out_path,
+		Ym2612ChipType chip_type)
 {
 	auto compile = compile_mml_text(text, base_path, display_name);
 	if (!compile.song)
 		return {false, compile.error};
-	return safe_export_wav_song(compile.song, out_path);
+	return safe_export_wav_song(compile.song, out_path, chip_type);
 }
