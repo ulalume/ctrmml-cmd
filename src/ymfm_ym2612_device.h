@@ -8,10 +8,16 @@
 class YmfmYm2612Interface;
 class YmfmYm2612Chip;
 
+enum class Ym2612ChipType
+{
+	Ym2612 = 0,
+	Ym3438 = 1,
+};
+
 class YmfmYm2612Device
 {
 public:
-	explicit YmfmYm2612Device(uint32_t clock);
+	explicit YmfmYm2612Device(uint32_t clock, Ym2612ChipType chip_type = Ym2612ChipType::Ym2612);
 	~YmfmYm2612Device();
 
 	uint32_t sample_rate() const;
@@ -19,12 +25,15 @@ public:
 	void write(uint8_t offset, uint8_t data);
 	void render(DEV_SMPL **outputs, uint32_t samples);
 	void set_mute_mask(uint32_t mask);
+	void set_chip_type(Ym2612ChipType chip_type);
+	Ym2612ChipType get_chip_type() const;
 
 	static void stream_update(void *info, UINT32 samples, DEV_SMPL **outputs);
 
 private:
 	uint32_t clock;
 	uint32_t mute_mask;
+	Ym2612ChipType chip_type;
 	uint8_t port0_address;
 	uint8_t key_state[8]; // operator key-on state per channel slot (indexed by 0x28 ch field)
 	std::unique_ptr<YmfmYm2612Interface> interface;
