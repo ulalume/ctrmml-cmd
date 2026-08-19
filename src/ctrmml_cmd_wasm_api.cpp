@@ -1021,6 +1021,12 @@ extern "C" void preview_note_on(uint8_t midi_note, uint8_t velocity)
 		g_preview->note_on(midi_note, velocity);
 }
 
+extern "C" void preview_note_on_attenuation(uint8_t midi_note, uint8_t tl_attenuation)
+{
+	if (g_preview)
+		g_preview->note_on_attenuation(midi_note, tl_attenuation);
+}
+
 extern "C" void preview_note_off(uint8_t midi_note)
 {
 	if (g_preview)

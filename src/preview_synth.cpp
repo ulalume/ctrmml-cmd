@@ -1,4 +1,5 @@
 #include "preview_synth.h"
+#include "preview_volume.h"
 #include "vgm_audio_renderer.h"
 
 #include <algorithm>
@@ -170,25 +171,25 @@ void PreviewSynth::fm_set_pitch(int ch, uint8_t midi_note)
 
 void PreviewSynth::fm_set_volume(int ch, uint8_t velocity)
 {
+	const int vol_adj = preview_volume::gm2_velocity_tl[velocity & 0x7f];
+	fm_set_volume_attenuation(ch, static_cast<uint8_t>(vol_adj));
+}
+
+void PreviewSynth::fm_set_volume_attenuation(int ch, uint8_t tl_attenuation)
+{
 	uint8_t port = ch / 3;
 	uint8_t id = ch % 3;
 	uint8_t alg = fm_instrument[28] & 7;
 	uint8_t carrier_mask = alg_carrier_mask[alg];
-
-	// Convert velocity (0-127) to TL attenuation adjustment
-	// velocity 127 = no attenuation, velocity 0 = max attenuation
-	int vol_adj = (127 - velocity) >> 1; // 0..63
+	const uint8_t vol_adj = std::min<uint8_t>(tl_attenuation, 127);
 
 	for (int op = 0; op < 4; op++)
 	{
 		uint8_t tl = fm_instrument[24 + op];
 		if (carrier_mask & (1 << op))
 		{
-			// Carrier: apply velocity
-			int adj_tl = tl + vol_adj;
-			if (adj_tl > 127)
-				adj_tl = 127;
-			tl = static_cast<uint8_t>(adj_tl);
+			// Carrier: apply the selected volume attenuation.
+			tl = preview_volume::add_tl_attenuation(tl, vol_adj);
 		}
 		fm_write(port, 0x40 + op * 4 + id, tl);
 	}
@@ -466,6 +467,16 @@ void PreviewSynth::set_mode(int m)
 
 void PreviewSynth::note_on(uint8_t midi_note, uint8_t velocity)
 {
+	note_on_impl(midi_note, velocity, false);
+}
+
+void PreviewSynth::note_on_attenuation(uint8_t midi_note, uint8_t tl_attenuation)
+{
+	note_on_impl(midi_note, std::min<uint8_t>(tl_attenuation, 127), true);
+}
+
+void PreviewSynth::note_on_impl(uint8_t midi_note, uint8_t volume, bool direct_attenuation)
+{
 	if (!initialized)
 		return;
 	idle_counter = 0;
@@ -492,7 +503,10 @@ void PreviewSynth::note_on(uint8_t midi_note, uint8_t velocity)
 		fm_voices[ch].age = ++age_counter;
 
 		fm_set_pitch(ch, midi_note);
-		fm_set_volume(ch, velocity);
+		if (direct_attenuation)
+			fm_set_volume_attenuation(ch, volume);
+		else
+			fm_set_volume(ch, volume);
 		fm_key_on(ch);
 	}
 	else if (mode == 1 && psg_envelope_loaded)
