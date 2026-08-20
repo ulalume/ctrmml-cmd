@@ -139,7 +139,7 @@ namespace
 		PreviewSynth preview;
 		preview.init(kSampleRate);
 		return check(preview.get_psg_output_volume() == SoundDevice::kPsgOutputVolume,
-				"preview PSG volume should match playback's 0x80 resampler volume") &&
+				"preview PSG volume should match playback's PSG resampler volume") &&
 				check(preview.get_fm_output_volume() == SoundDevice::kDefaultOutputVolume,
 						"preview FM volume should match playback's 0x100 resampler volume");
 	}

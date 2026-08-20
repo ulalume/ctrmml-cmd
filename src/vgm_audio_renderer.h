@@ -18,7 +18,10 @@ class MameSn76496Device;
 class SoundDevice
 {
 public:
-	static constexpr uint16_t kPsgOutputVolume = 0x80;
+	// Half of what the bipolar MAME core's level implies: real SN76489 output is
+	// unipolar (0..+vol) behind an AC-coupling cap, so hardware peak-to-peak is
+	// vol, not 2*vol. 0x40 matches blastem's PSG:FM balance within 0.6 dB.
+	static constexpr uint16_t kPsgOutputVolume = 0x40;
 	static constexpr uint16_t kDefaultOutputVolume = 0x100;
 
 	SoundDevice();
