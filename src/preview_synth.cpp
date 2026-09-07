@@ -397,13 +397,15 @@ void PreviewSynth::psg_update_envelopes()
 			psg_set_volume(ch, vol);
 			v.env_pos++;
 		}
-		// End/stop (0x00-0x0F): mute only if key off
-		else if (v.env_keyoff)
+		// End: mute, keyed on or not. A sustain marker holds until key off; a
+		// loop marker holds only after it.
+		else if (byte != 0x01 && (byte != 0x02 || v.env_keyoff))
 		{
 			psg_set_volume(ch, 15);
 			v.active = false;
+			v.env_keyoff = false;
+			v.env_pos = static_cast<int>(psg_envelope.size());
 		}
-		// Otherwise: hold last volume (do nothing)
 	}
 
 	// Noise voice envelope (ch3) — same logic as tone voices
@@ -451,10 +453,12 @@ void PreviewSynth::psg_update_envelopes()
 			psg_set_volume(3, vol);
 			v.env_pos++;
 		}
-		else if (v.env_keyoff)
+		else if (byte != 0x01 && (byte != 0x02 || v.env_keyoff))
 		{
 			psg_set_volume(3, 15);
 			v.active = false;
+			v.env_keyoff = false;
+			v.env_pos = static_cast<int>(psg_envelope.size());
 		}
 	}
 }
