@@ -108,6 +108,6 @@ private:
 	uint32_t psg_tick_counter;
 	uint32_t psg_tick_period; // samples per envelope tick
 	uint32_t age_counter;
-	uint32_t idle_counter;    // samples since last note-off (only counts when no notes held)
+	uint32_t silent_counter;  // consecutive silent samples rendered, saturated at sample_rate / 2
 	bool held_notes[128];     // bitmap of currently-held MIDI notes
 };

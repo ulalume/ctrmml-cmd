@@ -30,13 +30,20 @@ static const uint8_t alg_carrier_mask[8] = {
 static const uint32_t YM2612_CLOCK = 7670454;
 static const uint32_t SN76496_CLOCK = 3579545;
 
+// Silence is measured as the peak-to-peak span of a rendered block, not its
+// level: keyed-off chips hold a constant offset rather than zero (the ymfm
+// ladder DAC sits at +129024, YM3438 and the idle SN76496 at 0), and that
+// offset is larger than a whole note rendered at a moderate TL. Measured span
+// with everything keyed off is exactly 0; 256 is one YM2612 output LSB.
+static const int32_t SILENCE_SPAN = 256;
+
 PreviewSynth::PreviewSynth()
 	: initialized(false), mode(0),
 	  fm_instrument_loaded(false), fm_transpose(0), fm_op_mask(0x0f),
 	  ym2612_chip_type(Ym2612ChipType::Ym2612),
 	  psg_envelope_loaded(false),
 	  sample_rate(44100), psg_tick_counter(0), psg_tick_period(459),
-	  age_counter(0), idle_counter(0)
+	  age_counter(0), silent_counter(0)
 {
 	std::memset(fm_voices, 0, sizeof(fm_voices));
 	std::memset(fm_instrument, 0, sizeof(fm_instrument));
@@ -59,7 +66,7 @@ void PreviewSynth::init(uint32_t rate)
 	psg_tick_period = rate * 60 / (120 * 48);
 	psg_tick_counter = 0;
 	age_counter = 0;
-	idle_counter = sample_rate * 12; // start idle
+	silent_counter = rate / 2; // start idle
 
 	ym2612 = std::make_unique<SoundDevice>();
 	sn76496 = std::make_unique<SoundDevice>();
@@ -479,7 +486,7 @@ void PreviewSynth::note_on_impl(uint8_t midi_note, uint8_t volume, bool direct_a
 {
 	if (!initialized)
 		return;
-	idle_counter = 0;
+	silent_counter = 0;
 	if (midi_note < 128)
 		held_notes[midi_note] = true;
 
@@ -576,7 +583,7 @@ void PreviewSynth::note_off(uint8_t midi_note)
 {
 	if (!initialized)
 		return;
-	idle_counter = 0;
+	silent_counter = 0;
 	if (midi_note < 128)
 		held_notes[midi_note] = false;
 
@@ -648,12 +655,10 @@ bool PreviewSynth::is_active() const
 {
 	if (!initialized)
 		return false;
-	// Stay active while any note is held, then for 3 seconds after
-	// the last note-off to allow FM release envelopes to fade out.
 	for (int i = 0; i < 128; i++)
 		if (held_notes[i])
 			return true;
-	return idle_counter < sample_rate * 12;
+	return silent_counter < sample_rate / 2;
 }
 
 void PreviewSynth::render(WAVE_32BS *output, int frames)
@@ -663,6 +668,8 @@ void PreviewSynth::render(WAVE_32BS *output, int frames)
 
 	// Interleave PSG envelope ticks with chip rendering (sample-accurate)
 	WAVE_32BS tmp;
+	int32_t min_l = INT32_MAX, max_l = INT32_MIN;
+	int32_t min_r = INT32_MAX, max_r = INT32_MIN;
 	for (int i = 0; i < frames; i++)
 	{
 		// Advance PSG envelope at the correct sample positions
@@ -676,17 +683,27 @@ void PreviewSynth::render(WAVE_32BS *output, int frames)
 		tmp.L = 0;
 		tmp.R = 0;
 		ym2612->get_sample(&tmp, 1);
-		output[i].L += tmp.L;
-		output[i].R += tmp.R;
+		int32_t mix_l = tmp.L;
+		int32_t mix_r = tmp.R;
 
 		tmp.L = 0;
 		tmp.R = 0;
 		sn76496->get_sample(&tmp, 1);
-		output[i].L += tmp.L;
-		output[i].R += tmp.R;
+		mix_l += tmp.L;
+		mix_r += tmp.R;
+
+		output[i].L += mix_l;
+		output[i].R += mix_r;
+
+		// The span is taken over this synth's own mix: output may already
+		// carry the song renderer's samples.
+		min_l = std::min(min_l, mix_l);
+		max_l = std::max(max_l, mix_l);
+		min_r = std::min(min_r, mix_r);
+		max_r = std::max(max_r, mix_r);
 	}
 
-	// Only count idle time after all notes are released
+	// Only track silence after all notes are released
 	bool any_held = false;
 	for (int i = 0; i < 128; i++)
 	{
@@ -696,8 +713,10 @@ void PreviewSynth::render(WAVE_32BS *output, int frames)
 			break;
 		}
 	}
-	if (any_held)
-		idle_counter = 0;
-	else if (idle_counter < sample_rate * 12)
-		idle_counter += frames;
+
+	const uint32_t silence_hold = sample_rate / 2;
+	if (any_held || max_l - min_l > SILENCE_SPAN || max_r - min_r > SILENCE_SPAN)
+		silent_counter = 0;
+	else
+		silent_counter = std::min(silent_counter + static_cast<uint32_t>(frames), silence_hold);
 }
