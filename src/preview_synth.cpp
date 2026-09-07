@@ -37,6 +37,10 @@ static const uint32_t SN76496_CLOCK = 3579545;
 // with everything keyed off is exactly 0; 256 is one YM2612 output LSB.
 static const int32_t SILENCE_SPAN = 256;
 
+// How many times a released voice takes a loop before it stops. On the driver
+// the loop runs until the next key off; a preview note has none to wait for.
+static const uint8_t PSG_RELEASE_LOOPS = 4;
+
 PreviewSynth::PreviewSynth()
 	: initialized(false), mode(0),
 	  fm_instrument_loaded(false), fm_transpose(0), fm_op_mask(0x0f),
@@ -379,7 +383,8 @@ void PreviewSynth::psg_update_envelopes()
 			v.env_keyoff = false;
 		}
 		// Loop
-		else if (byte == 0x02 && !v.env_keyoff)
+		else if (byte == 0x02 && !v.env_keyoff &&
+				 (!v.env_released || ++v.env_loops < PSG_RELEASE_LOOPS))
 		{
 			if (static_cast<size_t>(v.env_pos + 1) < psg_envelope.size())
 				v.env_pos = psg_envelope[v.env_pos + 1];
@@ -397,13 +402,15 @@ void PreviewSynth::psg_update_envelopes()
 			psg_set_volume(ch, vol);
 			v.env_pos++;
 		}
-		// End: mute, keyed on or not. A sustain marker holds until key off; a
-		// loop marker holds only after it.
-		else if (byte != 0x01 && (byte != 0x02 || v.env_keyoff))
+		// End: mute, keyed on or not. A sustain marker holds until key off,
+		// and after the release there is no key off left to wait for.
+		else if (byte != 0x01 || v.env_released)
 		{
 			psg_set_volume(ch, 15);
 			v.active = false;
 			v.env_keyoff = false;
+			v.env_released = false;
+			v.env_loops = 0;
 			v.env_pos = static_cast<int>(psg_envelope.size());
 		}
 	}
@@ -437,7 +444,8 @@ void PreviewSynth::psg_update_envelopes()
 			v.env_pos++;
 			v.env_keyoff = false;
 		}
-		else if (byte == 0x02 && !v.env_keyoff)
+		else if (byte == 0x02 && !v.env_keyoff &&
+				 (!v.env_released || ++v.env_loops < PSG_RELEASE_LOOPS))
 		{
 			if (static_cast<size_t>(v.env_pos + 1) < psg_envelope.size())
 				v.env_pos = psg_envelope[v.env_pos + 1];
@@ -453,11 +461,13 @@ void PreviewSynth::psg_update_envelopes()
 			psg_set_volume(3, vol);
 			v.env_pos++;
 		}
-		else if (byte != 0x01 && (byte != 0x02 || v.env_keyoff))
+		else if (byte != 0x01 || v.env_released)
 		{
 			psg_set_volume(3, 15);
 			v.active = false;
 			v.env_keyoff = false;
+			v.env_released = false;
+			v.env_loops = 0;
 			v.env_pos = static_cast<int>(psg_envelope.size());
 		}
 	}
@@ -539,6 +549,8 @@ void PreviewSynth::note_on_impl(uint8_t midi_note, uint8_t volume, bool direct_a
 		psg_voices[ch].env_pos = 0;
 		psg_voices[ch].env_delay = 0x1f;
 		psg_voices[ch].env_keyoff = false;
+		psg_voices[ch].env_released = false;
+		psg_voices[ch].env_loops = 0;
 		psg_voices[ch].env_vol = 0;
 
 		psg_set_pitch(ch, midi_note);
@@ -559,6 +571,8 @@ void PreviewSynth::note_on_impl(uint8_t midi_note, uint8_t volume, bool direct_a
 		psg_noise_voice.env_pos = 0;
 		psg_noise_voice.env_delay = 0x1f;
 		psg_noise_voice.env_keyoff = false;
+		psg_noise_voice.env_released = false;
+		psg_noise_voice.env_loops = 0;
 		psg_noise_voice.env_vol = 0;
 
 		if (mode == 2)
@@ -611,6 +625,7 @@ void PreviewSynth::note_off(uint8_t midi_note)
 			if (psg_voices[i].active && psg_voices[i].midi_note == midi_note)
 			{
 				psg_voices[i].env_keyoff = true;
+				psg_voices[i].env_released = true;
 				break;
 			}
 		}
@@ -620,6 +635,7 @@ void PreviewSynth::note_off(uint8_t midi_note)
 		if (psg_noise_voice.active && psg_noise_voice.midi_note == midi_note)
 		{
 			psg_noise_voice.env_keyoff = true;
+			psg_noise_voice.env_released = true;
 		}
 	}
 }
@@ -647,12 +663,16 @@ void PreviewSynth::all_notes_off()
 		psg_set_volume(i, 15);
 		psg_voices[i].active = false;
 		psg_voices[i].env_keyoff = false;
+		psg_voices[i].env_released = false;
+		psg_voices[i].env_loops = 0;
 	}
 
 	// Noise channel (ch3)
 	psg_set_volume(3, 15);
 	psg_noise_voice.active = false;
 	psg_noise_voice.env_keyoff = false;
+	psg_noise_voice.env_released = false;
+	psg_noise_voice.env_loops = 0;
 }
 
 bool PreviewSynth::is_active() const

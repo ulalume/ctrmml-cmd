@@ -97,6 +97,12 @@ private:
 		int env_pos;
 		int env_delay;
 		bool env_keyoff;
+		// Set from note off until the voice ends, where env_keyoff is cleared by
+		// the sustain marker: a loop reached in this state has no later key off
+		// to end it.
+		bool env_released;
+		// Loops taken since the release began.
+		uint8_t env_loops;
 		uint8_t env_vol;
 	};
 	PsgVoice psg_voices[3];
