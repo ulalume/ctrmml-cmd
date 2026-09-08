@@ -202,6 +202,20 @@ extern "C" int ctrmml_cmd_wasm_start_playback(uint32_t sample_rate,
 	return build_renderer(start_ticks, sample_rate) ? 0 : 1;
 }
 
+extern "C" int ctrmml_cmd_wasm_start_playback_at_tick(uint32_t sample_rate, uint32_t start_ticks)
+{
+	g_renderer.reset();
+	g_last_error.clear();
+
+	if (!g_compile.song || !g_compile.tracks || !g_compile.lines)
+	{
+		set_error("no compiled song");
+		return 1;
+	}
+
+	return build_renderer(start_ticks, sample_rate) ? 0 : 1;
+}
+
 extern "C" int ctrmml_cmd_wasm_compile_and_relink(const char *text, const char *base_dir)
 {
 	g_last_error.clear();
