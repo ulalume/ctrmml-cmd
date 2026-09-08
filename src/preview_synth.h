@@ -29,6 +29,10 @@ public:
 	//           3=PSG noise (mode 1/white), 4=PSG noise (mode 2/periodic)
 	void set_mode(int mode);
 
+	// Monophonic preview: a new note takes over the same voice and cuts the
+	// previous note instead of allocating another one.
+	void set_mono(bool m);
+
 	// Set operator mask for FM key-on (4 bits: bit0=OP1..bit3=OP4, default 0x0f=all)
 	void set_fm_op_mask(uint8_t mask);
 	void set_ym2612_chip_type(Ym2612ChipType chip_type);
@@ -55,6 +59,7 @@ private:
 	void fm_key_on(int ch);
 	void fm_key_off(int ch);
 	int fm_allocate_voice();
+	int fm_mono_voice(uint8_t midi_note);
 	void note_on_impl(uint8_t midi_note, uint8_t volume, bool direct_attenuation);
 
 	// PSG helpers
@@ -63,6 +68,7 @@ private:
 	void psg_set_volume(int ch, uint8_t vol);
 	void psg_update_envelopes();
 	int psg_allocate_voice();
+	int psg_mono_voice(uint8_t midi_note);
 
 	static uint16_t calc_fm_pitch(uint8_t midi_note, int transpose);
 	static uint16_t calc_psg_pitch(uint8_t midi_note);
@@ -74,6 +80,14 @@ private:
 	// Current mode: 0=FM, 1=PSG tone, 2=PSG noise(mode0),
 	//               3=PSG noise(mode1/white), 4=PSG noise(mode2/periodic)
 	int mode;
+
+	// Monophonic preview flag
+	bool mono;
+	// In mono mode the key-on for voice 0 is written by render() after one
+	// frame has been clocked with the key off: the chip samples the key state
+	// once per frame, so an off/on pair written back to back would not
+	// restart the envelope.
+	bool fm_key_on_pending;
 
 	// FM state
 	struct FmVoice

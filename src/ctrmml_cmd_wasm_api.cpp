@@ -1039,6 +1039,12 @@ extern "C" void preview_set_fm_op_mask(uint8_t mask)
 		g_preview->set_fm_op_mask(mask);
 }
 
+extern "C" void preview_set_mono(int mono)
+{
+	if (g_preview)
+		g_preview->set_mono(mono != 0);
+}
+
 extern "C" void preview_all_notes_off()
 {
 	if (g_preview)

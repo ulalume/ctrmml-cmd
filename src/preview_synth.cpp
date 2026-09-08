@@ -42,7 +42,7 @@ static const int32_t SILENCE_SPAN = 256;
 static const uint8_t PSG_RELEASE_LOOPS = 4;
 
 PreviewSynth::PreviewSynth()
-	: initialized(false), mode(0),
+	: initialized(false), mode(0), mono(false), fm_key_on_pending(false),
 	  fm_instrument_loaded(false), fm_transpose(0), fm_op_mask(0x0f),
 	  ym2612_chip_type(Ym2612ChipType::Ym2612),
 	  psg_envelope_loaded(false),
@@ -284,6 +284,19 @@ int PreviewSynth::fm_allocate_voice()
 	return 0;
 }
 
+int PreviewSynth::fm_mono_voice(uint8_t midi_note)
+{
+	// Always voice 0, cutting whatever it is sounding or releasing.
+	if (fm_voices[0].active)
+	{
+		fm_key_off(0);
+		if (fm_voices[0].midi_note != midi_note && fm_voices[0].midi_note < 128)
+			held_notes[fm_voices[0].midi_note] = false;
+		fm_voices[0].active = false;
+	}
+	return 0;
+}
+
 // ---------------------------------------------------------------------------
 // PSG
 // ---------------------------------------------------------------------------
@@ -342,6 +355,20 @@ int PreviewSynth::psg_allocate_voice()
 	// Steal channel 0
 	psg_set_volume(0, 15);
 	psg_voices[0].active = false;
+	return 0;
+}
+
+int PreviewSynth::psg_mono_voice(uint8_t midi_note)
+{
+	// Always channel 0, cutting whatever it is sounding or releasing. The
+	// envelope fields are reset by the caller.
+	if (psg_voices[0].active)
+	{
+		psg_set_volume(0, 15);
+		if (psg_voices[0].midi_note != midi_note && psg_voices[0].midi_note < 128)
+			held_notes[psg_voices[0].midi_note] = false;
+		psg_voices[0].active = false;
+	}
 	return 0;
 }
 
@@ -486,6 +513,15 @@ void PreviewSynth::set_mode(int m)
 	}
 }
 
+void PreviewSynth::set_mono(bool m)
+{
+	if (m != mono)
+	{
+		all_notes_off();
+		mono = m;
+	}
+}
+
 void PreviewSynth::note_on(uint8_t midi_note, uint8_t velocity)
 {
 	note_on_impl(midi_note, velocity, false);
@@ -518,7 +554,7 @@ void PreviewSynth::note_on_impl(uint8_t midi_note, uint8_t volume, bool direct_a
 			}
 		}
 
-		int ch = fm_allocate_voice();
+		int ch = mono ? fm_mono_voice(midi_note) : fm_allocate_voice();
 		fm_voices[ch].active = true;
 		fm_voices[ch].midi_note = midi_note;
 		fm_voices[ch].age = ++age_counter;
@@ -528,7 +564,10 @@ void PreviewSynth::note_on_impl(uint8_t midi_note, uint8_t volume, bool direct_a
 			fm_set_volume_attenuation(ch, volume);
 		else
 			fm_set_volume(ch, volume);
-		fm_key_on(ch);
+		if (mono)
+			fm_key_on_pending = true;
+		else
+			fm_key_on(ch);
 	}
 	else if (mode == 1 && psg_envelope_loaded)
 	{
@@ -543,7 +582,7 @@ void PreviewSynth::note_on_impl(uint8_t midi_note, uint8_t volume, bool direct_a
 			}
 		}
 
-		int ch = psg_allocate_voice();
+		int ch = mono ? psg_mono_voice(midi_note) : psg_allocate_voice();
 		psg_voices[ch].active = true;
 		psg_voices[ch].midi_note = midi_note;
 		psg_voices[ch].env_pos = 0;
@@ -612,6 +651,9 @@ void PreviewSynth::note_off(uint8_t midi_note)
 			if (fm_voices[i].active && fm_voices[i].midi_note == midi_note)
 			{
 				fm_key_off(i);
+				// A note released before its deferred key-on never sounds.
+				if (i == 0)
+					fm_key_on_pending = false;
 				// Keep active=true so voice allocator knows it's releasing.
 				// allNotesOff or voice stealing will reclaim it.
 				break;
@@ -645,6 +687,7 @@ void PreviewSynth::all_notes_off()
 	if (!initialized)
 		return;
 	std::memset(held_notes, 0, sizeof(held_notes));
+	fm_key_on_pending = false;
 
 	for (int i = 0; i < 6; i++)
 	{
@@ -696,6 +739,13 @@ void PreviewSynth::render(WAVE_32BS *output, int frames)
 	int32_t min_r = INT32_MAX, max_r = INT32_MIN;
 	for (int i = 0; i < frames; i++)
 	{
+		// Frame 0 is clocked with voice 0 keyed off so the chip sees the edge.
+		if (i == 1 && fm_key_on_pending)
+		{
+			fm_key_on_pending = false;
+			fm_key_on(0);
+		}
+
 		// Advance PSG envelope at the correct sample positions
 		psg_tick_counter++;
 		if (psg_tick_counter >= psg_tick_period)
