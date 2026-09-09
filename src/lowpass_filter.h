@@ -6,18 +6,21 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-// First-order IIR low-pass filter (RC filter), matching BlastEm's
-// analog output stage emulation.
-// Default cutoff 3390 Hz, same as BlastEm's DEFAULT_LOWPASS_CUTOFF.
+// First-order IIR low-pass filter (RC filter), matching blastem's analog
+// output stage emulation. Runs at the sample rate passed to init(), which is
+// each chip's native rate.
+// Default cutoff 3390 Hz, same as blastem's DEFAULT_LOWPASS_CUTOFF.
 struct LowPassFilter
 {
+	static constexpr double kDefaultCutoffHz = 3390.0;
+
 	int32_t last_l = 0;
 	int32_t last_r = 0;
 	int32_t alpha = 0; // 0.16 fixed-point coefficient
 	bool enabled = false;
 	uint32_t current_sample_rate = 0;
 
-	void init(uint32_t sample_rate, double cutoff_hz = 3390.0)
+	void init(uint32_t sample_rate, double cutoff_hz = kDefaultCutoffHz)
 	{
 		current_sample_rate = sample_rate;
 		set_cutoff(cutoff_hz);

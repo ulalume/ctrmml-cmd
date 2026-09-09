@@ -4,7 +4,6 @@
 #include <vector>
 
 #include "dc_blocker.h"
-#include "lowpass_filter.h"
 #include "vgm_audio_renderer.h"
 
 struct ma_device;
@@ -26,7 +25,6 @@ private:
 	ma_device *device;
 	VgmAudioRenderer *renderer;
 	bool running;
-	LowPassFilter lpf;
 	DcBlocker dc_blocker;
 	std::vector<WAVE_32BS> scratch;
 };

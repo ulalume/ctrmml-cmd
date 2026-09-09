@@ -8,6 +8,7 @@
 #include <resampler/EmuStructs.h>
 #include <resampler/Resampler.h>
 
+#include "lowpass_filter.h"
 #include "vgm.h"
 #include "song.h"
 #include "driver.h"
@@ -36,10 +37,14 @@ public:
 	void get_sample(WAVE_32BS *output, int count);
 	void set_mute_mask(uint32_t mask);
 	void set_ym2612_chip_type(Ym2612ChipType chip_type);
+	//! Low-pass the chip output at its native rate, before resampling.
+	void set_lowpass(bool enabled, double cutoff_hz);
 	uint16_t get_default_volume() const;
 
 private:
 	void reset_device();
+	//! Resampler callback: renders the chip, then low-passes the chunk.
+	static void stream_update(void *info, UINT32 samples, DEV_SMPL **outputs);
 
 	RESMPL_STATE resmpl;
 	bool dev_init;
@@ -55,6 +60,9 @@ private:
 	Ym2612ChipType ym2612_chip_type;
 	std::unique_ptr<YmfmYm2612Device> ymfm_ym2612;
 	std::unique_ptr<MameSn76496Device> mame_sn76496;
+	LowPassFilter lowpass;
+	bool lowpass_enabled;
+	double lowpass_cutoff;
 };
 
 class VgmAudioRenderer : private VGM_Interface
@@ -73,6 +81,8 @@ public:
 	void set_mute_mask(int chip_id, uint32_t mask);
 	void set_ym2612_chip_type(Ym2612ChipType chip_type);
 	Ym2612ChipType get_ym2612_chip_type() const;
+	//! Low-pass every chip at its own native rate, before resampling.
+	void set_lowpass(bool enabled, double cutoff_hz);
 	int get_loop_count() const;
 	//! Hot-swap to a freshly compiled song without resetting the chip
 	//! emulators or the driver's channel objects. Forwards to
@@ -117,6 +127,8 @@ private:
 	float sample_delta;
 	bool finished;
 	bool log_messages;
+	bool lowpass_enabled;
+	double lowpass_cutoff;
 	Ym2612ChipType ym2612_chip_type;
 	std::string last_error_message;
 

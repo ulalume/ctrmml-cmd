@@ -26,8 +26,9 @@ namespace
 {
 	const float kInvSampleScale = 1.0f / 8388608.0f;
 	constexpr int kMaxChannels = 16;
-	LowPassFilter g_lpf;
 	DcBlocker g_dc_blocker;
+	bool g_lowpass_enabled = true;
+	double g_lowpass_cutoff = LowPassFilter::kDefaultCutoffHz;
 	Ym2612ChipType g_ym2612_chip_type = Ym2612ChipType::Ym2612;
 
 	CompileResult g_compile;
@@ -59,7 +60,7 @@ namespace
 			g_renderer = std::make_unique<VgmAudioRenderer>(g_compile.song, start_ticks, false);
 			g_renderer->set_ym2612_chip_type(g_ym2612_chip_type);
 			g_renderer->setup_stream(sample_rate);
-			g_lpf.init(sample_rate);
+			g_renderer->set_lowpass(g_lowpass_enabled, g_lowpass_cutoff);
 			g_dc_blocker.reset();
 			return true;
 		}
@@ -336,7 +337,6 @@ extern "C" int ctrmml_cmd_wasm_render_audio(float *output, int frames)
 
 	for (int i = 0; i < written; ++i)
 	{
-		g_lpf.apply(scratch[i].L, scratch[i].R);
 		float l = scratch[i].L * kInvSampleScale;
 		float r = scratch[i].R * kInvSampleScale;
 		g_dc_blocker.process(l, r);
@@ -989,9 +989,13 @@ extern "C" const char *ctrmml_cmd_wasm_get_instrument_data_json(uint16_t ins_id)
 
 extern "C" void ctrmml_cmd_wasm_set_lowpass_filter(int enabled, float cutoff_hz)
 {
-	g_lpf.enabled = (enabled != 0);
-	if (g_lpf.enabled && cutoff_hz > 0.0f)
-		g_lpf.set_cutoff(static_cast<double>(cutoff_hz));
+	g_lowpass_enabled = (enabled != 0);
+	if (cutoff_hz > 0.0f)
+		g_lowpass_cutoff = static_cast<double>(cutoff_hz);
+	if (g_renderer)
+		g_renderer->set_lowpass(g_lowpass_enabled, g_lowpass_cutoff);
+	if (g_preview)
+		g_preview->set_lowpass(g_lowpass_enabled, g_lowpass_cutoff);
 }
 
 // Preview synth
@@ -1001,8 +1005,8 @@ extern "C" void preview_init(uint32_t sample_rate)
 {
 	g_preview = std::make_unique<PreviewSynth>();
 	g_preview->set_ym2612_chip_type(g_ym2612_chip_type);
+	g_preview->set_lowpass(g_lowpass_enabled, g_lowpass_cutoff);
 	g_preview->init(sample_rate);
-	g_lpf.init(sample_rate);
 	g_dc_blocker.reset();
 }
 

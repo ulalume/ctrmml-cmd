@@ -6,7 +6,6 @@
 
 #include "dc_blocker.h"
 #include "input.h"
-#include "lowpass_filter.h"
 #include "mml_compile.h"
 #include "vgm_audio_renderer.h"
 
@@ -123,8 +122,6 @@ namespace
 		renderer.set_ym2612_chip_type(chip_type);
 		renderer.setup_stream(kWavSampleRate);
 
-		LowPassFilter lpf;
-		lpf.init(kWavSampleRate);
 		DcBlocker dc_blocker;
 		dc_blocker.reset();
 
@@ -146,7 +143,6 @@ namespace
 
 			for (unsigned int i = 0; i < chunk; ++i)
 			{
-				lpf.apply(scratch[i].L, scratch[i].R);
 				float l = scratch[i].L * kInvSampleScale;
 				float r = scratch[i].R * kInvSampleScale;
 				dc_blocker.process(l, r);
@@ -187,7 +183,6 @@ namespace
 
 				for (unsigned int i = 0; i < chunk; ++i)
 				{
-					lpf.apply(scratch[i].L, scratch[i].R);
 					float fade = 1.0f - static_cast<float>(fade_rendered + i) / static_cast<float>(fade_frames);
 					float l = scratch[i].L * kInvSampleScale * fade;
 					float r = scratch[i].R * kInvSampleScale * fade;

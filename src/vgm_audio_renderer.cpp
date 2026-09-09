@@ -16,7 +16,8 @@ namespace
 
 SoundDevice::SoundDevice()
 		: resmpl{}, dev_init(false), resmpl_init(false), chip_type(CHIP_NONE),
-		  sample_rate(0), volume(kDefaultOutputVolume), ym2612_chip_type(Ym2612ChipType::Ym2612)
+		  sample_rate(0), volume(kDefaultOutputVolume), ym2612_chip_type(Ym2612ChipType::Ym2612),
+		  lowpass_enabled(true), lowpass_cutoff(LowPassFilter::kDefaultCutoffHz)
 {
 }
 
@@ -36,8 +37,34 @@ void SoundDevice::reset_device()
 	ymfm_ym2612.reset();
 	mame_sn76496.reset();
 	resmpl = {};
+	lowpass.last_l = 0;
+	lowpass.last_r = 0;
 	dev_init = false;
 	chip_type = CHIP_NONE;
+}
+
+void SoundDevice::stream_update(void *info, UINT32 samples, DEV_SMPL **outputs)
+{
+	auto *self = static_cast<SoundDevice *>(info);
+	if (self->chip_type == CHIP_YM2612)
+		YmfmYm2612Device::stream_update(self->ymfm_ym2612.get(), samples, outputs);
+	else if (self->chip_type == CHIP_SN76496)
+		MameSn76496Device::stream_update(self->mame_sn76496.get(), samples, outputs);
+	else
+		return;
+
+	for (UINT32 i = 0; i < samples; i++)
+		self->lowpass.apply(outputs[0][i], outputs[1][i]);
+}
+
+void SoundDevice::set_lowpass(bool enabled, double cutoff_hz)
+{
+	lowpass_enabled = enabled;
+	if (cutoff_hz > 0.0)
+		lowpass_cutoff = cutoff_hz;
+	lowpass.enabled = enabled;
+	if (lowpass.current_sample_rate)
+		lowpass.set_cutoff(lowpass_cutoff);
 }
 
 void SoundDevice::set_default_volume(uint16_t vol)
@@ -63,17 +90,14 @@ void SoundDevice::set_rate(uint32_t rate)
 	if (dev_init)
 	{
 		if (chip_type == CHIP_YM2612)
-		{
 			resmpl.smpRateSrc = ymfm_ym2612->sample_rate();
-			resmpl.StreamUpdate = &YmfmYm2612Device::stream_update;
-			resmpl.su_DataPtr = ymfm_ym2612.get();
-		}
 		else if (chip_type == CHIP_SN76496)
-		{
 			resmpl.smpRateSrc = mame_sn76496->sample_rate();
-			resmpl.StreamUpdate = &MameSn76496Device::stream_update;
-			resmpl.su_DataPtr = mame_sn76496.get();
-		}
+		resmpl.StreamUpdate = &SoundDevice::stream_update;
+		resmpl.su_DataPtr = this;
+		// The filter runs on the chip's own output, at the chip's rate.
+		lowpass.init(resmpl.smpRateSrc, lowpass_cutoff);
+		lowpass.enabled = lowpass_enabled;
 		Resmpl_SetVals(&resmpl, 0xff, volume, sample_rate);
 		Resmpl_Init(&resmpl);
 		resmpl_init = true;
@@ -140,6 +164,7 @@ void SoundDevice::set_ym2612_chip_type(Ym2612ChipType chip_type_in)
 
 VgmAudioRenderer::VgmAudioRenderer(std::shared_ptr<Song> song, uint32_t start_position, bool log_messages)
 		: sample_rate(1), delta_time(0), sample_delta(1), finished(false), log_messages(log_messages),
+		  lowpass_enabled(true), lowpass_cutoff(LowPassFilter::kDefaultCutoffHz),
 		  ym2612_chip_type(Ym2612ChipType::Ym2612), last_error_message(""), song(std::move(song))
 {
 	driver = this->song->get_platform()->get_driver(1, (VGM_Interface *)this);
@@ -175,6 +200,15 @@ void VgmAudioRenderer::set_ym2612_chip_type(Ym2612ChipType chip_type)
 Ym2612ChipType VgmAudioRenderer::get_ym2612_chip_type() const
 {
 	return ym2612_chip_type;
+}
+
+void VgmAudioRenderer::set_lowpass(bool enabled, double cutoff_hz)
+{
+	lowpass_enabled = enabled;
+	if (cutoff_hz > 0.0)
+		lowpass_cutoff = cutoff_hz;
+	for (auto &device_pair : devices)
+		device_pair.second.set_lowpass(lowpass_enabled, lowpass_cutoff);
 }
 
 void VgmAudioRenderer::setup_stream(uint32_t sample_rate)
@@ -329,11 +363,13 @@ void VgmAudioRenderer::poke32(uint32_t offset, uint32_t data)
 	{
 	case 0x0c:
 		devices[DEVID_SN76496].set_default_volume(SoundDevice::kPsgOutputVolume);
+		devices[DEVID_SN76496].set_lowpass(lowpass_enabled, lowpass_cutoff);
 		devices[DEVID_SN76496].init_sn76489(clock);
 		devices[DEVID_SN76496].set_rate(sample_rate);
 		break;
 	case 0x2c:
 		devices[DEVID_YM2612].set_ym2612_chip_type(ym2612_chip_type);
+		devices[DEVID_YM2612].set_lowpass(lowpass_enabled, lowpass_cutoff);
 		devices[DEVID_YM2612].init_ym2612(clock);
 		devices[DEVID_YM2612].set_rate(sample_rate);
 		break;

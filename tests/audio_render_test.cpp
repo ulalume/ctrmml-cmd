@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "dc_blocker.h"
+#include "lowpass_filter.h"
 #include "preview_synth.h"
 #include "vgm_audio_renderer.h"
 #include "ymfm_ym2612_device.h"
@@ -13,6 +14,8 @@ namespace
 {
 	constexpr uint32_t kYm2612Clock = 7670454;
 	constexpr uint32_t kSampleRate = 44100;
+	constexpr uint32_t kPsgChipRate = 223723;
+	constexpr uint32_t kSn76496Clock = 3579545;
 
 	bool check(bool condition, const char *message)
 	{
@@ -134,6 +137,100 @@ namespace
 				check(std::abs(settled_mean) < 1.0e-6, "DC blocker output should converge to zero mean");
 	}
 
+	// Peak of a sine at `freq` after `filter`, relative to its input peak.
+	double filtered_gain(LowPassFilter &filter, uint32_t rate, double freq)
+	{
+		constexpr double amplitude = 1000000.0;
+		const uint32_t frames = rate / 50;
+		int32_t peak = 0;
+		for (uint32_t i = 0; i < frames; ++i)
+		{
+			const double phase = 2.0 * M_PI * freq * i / rate;
+			int32_t l = static_cast<int32_t>(amplitude * std::sin(phase));
+			int32_t r = l;
+			filter.apply(l, r);
+			if (i >= frames / 2)
+				peak = std::max(peak, static_cast<int32_t>(std::abs(l)));
+		}
+		return peak / amplitude;
+	}
+
+	bool test_lowpass_response()
+	{
+		LowPassFilter filter;
+		filter.init(kPsgChipRate);
+		const double at_cutoff = filtered_gain(filter, kPsgChipRate, 3390.0);
+		filter.init(kPsgChipRate);
+		const double at_dc = filtered_gain(filter, kPsgChipRate, 100.0);
+		const double cutoff_db = 20.0 * std::log10(at_cutoff);
+
+		std::cout << "Low-pass at PSG rate: 100 Hz=" << at_dc
+				<< ", 3390 Hz=" << at_cutoff << " (" << cutoff_db << " dB)\n";
+		bool ok = true;
+		ok &= check(at_dc > 0.99, "low-pass should pass 100 Hz unattenuated");
+		ok &= check(cutoff_db < -2.5 && cutoff_db > -3.5,
+				"low-pass should be about -3 dB at its cutoff");
+		return ok;
+	}
+
+	// Peak-to-peak span of one second of PSG output at the given note period.
+	int32_t psg_span(SoundDevice &device, uint16_t period)
+	{
+		device.write(0, 0, 0x80 | (period & 0x0f));
+		device.write(0, 0, (period >> 4) & 0x3f);
+		device.write(0, 0, 0x90); // channel 0 at full volume
+
+		std::vector<WAVE_32BS> out(kSampleRate);
+		int32_t low = INT32_MAX;
+		int32_t high = INT32_MIN;
+		for (uint32_t i = 0; i < kSampleRate; ++i)
+		{
+			out[i].L = 0;
+			out[i].R = 0;
+			device.get_sample(&out[i], 1);
+			if (i < kSampleRate / 2)
+				continue; // let the filter settle
+			low = std::min(low, out[i].L);
+			high = std::max(high, out[i].L);
+		}
+		return high - low;
+	}
+
+	bool test_device_lowpass()
+	{
+		// Tone period 0x008 is about 14 kHz, period 0x080 about 873 Hz.
+		SoundDevice filtered;
+		filtered.set_default_volume(SoundDevice::kPsgOutputVolume);
+		filtered.init_sn76489(kSn76496Clock);
+		filtered.set_rate(kSampleRate);
+		const int32_t filtered_high = psg_span(filtered, 0x008);
+
+		SoundDevice unfiltered;
+		unfiltered.set_default_volume(SoundDevice::kPsgOutputVolume);
+		unfiltered.set_lowpass(false, 0.0);
+		unfiltered.init_sn76489(kSn76496Clock);
+		unfiltered.set_rate(kSampleRate);
+		const int32_t unfiltered_high = psg_span(unfiltered, 0x008);
+
+		SoundDevice low_note;
+		low_note.set_default_volume(SoundDevice::kPsgOutputVolume);
+		low_note.init_sn76489(kSn76496Clock);
+		low_note.set_rate(kSampleRate);
+		const int32_t filtered_low = psg_span(low_note, 0x080);
+
+		std::cout << "PSG spans: high filtered=" << filtered_high
+				<< ", high unfiltered=" << unfiltered_high
+				<< ", low filtered=" << filtered_low << '\n';
+		bool ok = true;
+		ok &= check(filtered_high * 3 < unfiltered_high,
+				"the device filter should attenuate a high PSG tone");
+		ok &= check(filtered_high * 3 < filtered_low,
+				"a high PSG tone should end up quieter than a low one");
+		ok &= check(filtered_low * 10 > unfiltered_high * 9,
+				"a low PSG tone should pass the filter nearly untouched");
+		return ok;
+	}
+
 	bool test_preview_psg_volume()
 	{
 		PreviewSynth preview;
@@ -151,6 +248,8 @@ int main()
 	ok &= test_gain_staging();
 	ok &= test_chip_types();
 	ok &= test_dc_blocker();
+	ok &= test_lowpass_response();
+	ok &= test_device_lowpass();
 	ok &= test_preview_psg_volume();
 	return ok ? 0 : 1;
 }

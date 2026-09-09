@@ -36,6 +36,8 @@ public:
 	// Set operator mask for FM key-on (4 bits: bit0=OP1..bit3=OP4, default 0x0f=all)
 	void set_fm_op_mask(uint8_t mask);
 	void set_ym2612_chip_type(Ym2612ChipType chip_type);
+	//! Low-pass both chips at their native rate, before resampling.
+	void set_lowpass(bool enabled, double cutoff_hz);
 	uint16_t get_fm_output_volume() const;
 	uint16_t get_psg_output_volume() const;
 
@@ -102,6 +104,8 @@ private:
 	int fm_transpose;
 	uint8_t fm_op_mask; // 4-bit operator mask for key-on (bit0=OP1..bit3=OP4)
 	Ym2612ChipType ym2612_chip_type;
+	bool lowpass_enabled;
+	double lowpass_cutoff;
 
 	// PSG state
 	struct PsgVoice

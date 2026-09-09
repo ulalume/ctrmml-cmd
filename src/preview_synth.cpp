@@ -1,4 +1,5 @@
 #include "preview_synth.h"
+#include "lowpass_filter.h"
 #include "preview_volume.h"
 #include "vgm_audio_renderer.h"
 
@@ -45,6 +46,7 @@ PreviewSynth::PreviewSynth()
 	: initialized(false), mode(0), mono(false), fm_key_on_pending(false),
 	  fm_instrument_loaded(false), fm_transpose(0), fm_op_mask(0x0f),
 	  ym2612_chip_type(Ym2612ChipType::Ym2612),
+	  lowpass_enabled(true), lowpass_cutoff(LowPassFilter::kDefaultCutoffHz),
 	  psg_envelope_loaded(false),
 	  sample_rate(44100), psg_tick_counter(0), psg_tick_period(459),
 	  age_counter(0), silent_counter(0)
@@ -76,10 +78,12 @@ void PreviewSynth::init(uint32_t rate)
 	sn76496 = std::make_unique<SoundDevice>();
 
 	ym2612->set_ym2612_chip_type(ym2612_chip_type);
+	ym2612->set_lowpass(lowpass_enabled, lowpass_cutoff);
 	ym2612->init_ym2612(YM2612_CLOCK);
 	ym2612->set_rate(rate);
 
 	sn76496->set_default_volume(SoundDevice::kPsgOutputVolume);
+	sn76496->set_lowpass(lowpass_enabled, lowpass_cutoff);
 	sn76496->init_sn76489(SN76496_CLOCK);
 	sn76496->set_rate(rate);
 
@@ -216,6 +220,17 @@ void PreviewSynth::set_ym2612_chip_type(Ym2612ChipType chip_type)
 	ym2612_chip_type = chip_type;
 	if (ym2612)
 		ym2612->set_ym2612_chip_type(chip_type);
+}
+
+void PreviewSynth::set_lowpass(bool enabled, double cutoff_hz)
+{
+	lowpass_enabled = enabled;
+	if (cutoff_hz > 0.0)
+		lowpass_cutoff = cutoff_hz;
+	if (ym2612)
+		ym2612->set_lowpass(lowpass_enabled, lowpass_cutoff);
+	if (sn76496)
+		sn76496->set_lowpass(lowpass_enabled, lowpass_cutoff);
 }
 
 uint16_t PreviewSynth::get_fm_output_volume() const
