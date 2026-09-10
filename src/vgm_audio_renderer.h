@@ -83,6 +83,9 @@ public:
 	Ym2612ChipType get_ym2612_chip_type() const;
 	//! Low-pass every chip at its own native rate, before resampling.
 	void set_lowpass(bool enabled, double cutoff_hz);
+	//! Finish playback once PCM output ends: a DAC stream reaches the end of
+	//! its sample, or the DAC is switched off after being enabled.
+	void set_stop_at_pcm_end(bool enabled);
 	int get_loop_count() const;
 	//! Hot-swap to a freshly compiled song without resetting the chip
 	//! emulators or the driver's channel objects. Forwards to
@@ -129,6 +132,8 @@ private:
 	bool log_messages;
 	bool lowpass_enabled;
 	double lowpass_cutoff;
+	bool stop_at_pcm_end;
+	bool dac_enabled;
 	Ym2612ChipType ym2612_chip_type;
 	std::string last_error_message;
 

@@ -285,6 +285,12 @@ extern "C" void ctrmml_cmd_wasm_set_ym2612_chip_type(int chip_type)
 		g_preview->set_ym2612_chip_type(g_ym2612_chip_type);
 }
 
+extern "C" void ctrmml_cmd_wasm_set_stop_at_pcm_end(int enabled)
+{
+	if (g_renderer)
+		g_renderer->set_stop_at_pcm_end(enabled != 0);
+}
+
 extern "C" void ctrmml_cmd_wasm_stop_playback()
 {
 	if (g_renderer)

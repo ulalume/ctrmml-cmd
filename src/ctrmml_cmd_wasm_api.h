@@ -68,6 +68,10 @@ extern "C"
 
 	// Audio low-pass filter (analog output stage emulation)
 	void ctrmml_cmd_wasm_set_lowpass_filter(int enabled, float cutoff_hz);
+	// Finish the current playback once PCM output ends (the sample plays out
+// or the DAC is switched off).
+	// Each start_playback call begins with this off.
+	void ctrmml_cmd_wasm_set_stop_at_pcm_end(int enabled);
 
 	// Preview synth — standalone chip emulator for note preview / MIDI
 	void preview_init(uint32_t sample_rate);

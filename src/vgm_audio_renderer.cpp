@@ -165,6 +165,7 @@ void SoundDevice::set_ym2612_chip_type(Ym2612ChipType chip_type_in)
 VgmAudioRenderer::VgmAudioRenderer(std::shared_ptr<Song> song, uint32_t start_position, bool log_messages)
 		: sample_rate(1), delta_time(0), sample_delta(1), finished(false), log_messages(log_messages),
 		  lowpass_enabled(true), lowpass_cutoff(LowPassFilter::kDefaultCutoffHz),
+		  stop_at_pcm_end(false), dac_enabled(false),
 		  ym2612_chip_type(Ym2612ChipType::Ym2612), last_error_message(""), song(std::move(song))
 {
 	driver = this->song->get_platform()->get_driver(1, (VGM_Interface *)this);
@@ -209,6 +210,11 @@ void VgmAudioRenderer::set_lowpass(bool enabled, double cutoff_hz)
 		lowpass_cutoff = cutoff_hz;
 	for (auto &device_pair : devices)
 		device_pair.second.set_lowpass(lowpass_enabled, lowpass_cutoff);
+}
+
+void VgmAudioRenderer::set_stop_at_pcm_end(bool enabled)
+{
+	stop_at_pcm_end = enabled;
 }
 
 void VgmAudioRenderer::setup_stream(uint32_t sample_rate)
@@ -257,7 +263,11 @@ int VgmAudioRenderer::get_sample(WAVE_32BS *output, int count)
 					stream.position++;
 					stream.counter -= sample_rate;
 					if (!--stream.length)
+					{
 						stream.active = false;
+						if (stop_at_pcm_end)
+							finished = true;
+					}
 				}
 			}
 
@@ -327,6 +337,13 @@ void VgmAudioRenderer::write(uint8_t command, uint16_t port, uint16_t reg, uint1
 		break;
 	case 0x52:
 		devices[DEVID_YM2612].write(port, reg, data);
+		if (port == 0 && reg == 0x2b)
+		{
+			const bool enable = (data & 0x80) != 0;
+			if (dac_enabled && !enable && stop_at_pcm_end)
+				finished = true;
+			dac_enabled = enable;
+		}
 		break;
 	default:
 		break;
