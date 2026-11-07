@@ -565,45 +565,42 @@ namespace
 	// Register offsets:  +0=OP1, +4=OP3, +8=OP2, +C=OP4
 	int fm_reg_to_data_index(uint8_t reg)
 	{
-		// Map register low nibble to data_bank slot within a group
-		// 0x*0→0(OP1), 0x*4→1(OP3), 0x*8→2(OP2), 0x*C→3(OP4)
-		static const std::map<uint8_t, int> reg_to_slot = {
-			{0x00, 0}, {0x04, 1}, {0x08, 2}, {0x0c, 3}
-		};
-
-		auto slot_it = reg_to_slot.find(reg & 0x0c);
-
-		// DT/MUL: 0x30..0x3C → data[0..3]
-		if (reg >= 0x30 && reg <= 0x3c && slot_it != reg_to_slot.end())
-			return 0 + slot_it->second;
-		// KS/AR: 0x50..0x5C → data[4..7]
-		if (reg >= 0x50 && reg <= 0x5c && slot_it != reg_to_slot.end())
-			return 4 + slot_it->second;
-		// AM/DR: 0x60..0x6C → data[8..11]
-		if (reg >= 0x60 && reg <= 0x6c && slot_it != reg_to_slot.end())
-			return 8 + slot_it->second;
-		// SR: 0x70..0x7C → data[12..15]
-		if (reg >= 0x70 && reg <= 0x7c && slot_it != reg_to_slot.end())
-			return 12 + slot_it->second;
-		// SL/RR: 0x80..0x8C → data[16..19]
-		if (reg >= 0x80 && reg <= 0x8c && slot_it != reg_to_slot.end())
-			return 16 + slot_it->second;
-		// SSG-EG: 0x90..0x9C → data[20..23]
-		if (reg >= 0x90 && reg <= 0x9c && slot_it != reg_to_slot.end())
-			return 20 + slot_it->second;
-
-		// TL uses special MDSDRV addresses: 0xfc=OP1, 0xfd=OP3, 0xfe=OP2, 0xff=OP4
-		// → data[24..27] in same physical order
-		static const std::map<uint8_t, int> tl_map = {
-			{0xfc, 24}, {0xfd, 25}, {0xfe, 26}, {0xff, 27}
-		};
-		auto tl_it = tl_map.find(reg);
-		if (tl_it != tl_map.end()) return tl_it->second;
-
+		// TL uses special MDSDRV addresses: 0xfc=OP1, 0xfd=OP3, 0xfe=OP2,
+		// 0xff=OP4 → data[24..27] in the same physical order
+		if (reg >= 0xfc)
+			return 24 + (reg - 0xfc);
 		// FB/ALG: 0xB0 → data[28]
-		if (reg == 0xb0) return 28;
+		if (reg == 0xb0)
+			return 28;
+		// DT/MUL 0x30..0x3C → data[0..3], then KS/AR 0x50, AM/DR 0x60,
+		// SR 0x70, SL/RR 0x80 and SSG-EG 0x90 → data[4..23]
+		const int row = reg >> 4;
+		if ((row != 0x3 && (row < 0x5 || row > 0x9)) || (reg & 0x0f) > 0x0c)
+			return -1;
+		return (row == 0x3 ? 0 : (row - 0x4) * 4) + ((reg >> 2) & 3);
+	}
 
-		return -1;
+	const char *instrument_type_name(MDSDRV_Data::InstrumentType type)
+	{
+		switch (type)
+		{
+		case MDSDRV_Data::INS_FM:  return "fm";
+		case MDSDRV_Data::INS_PSG: return "psg";
+		case MDSDRV_Data::INS_PCM: return "pcm";
+		default: return "unknown";
+		}
+	}
+
+	// Writes `,"data":[...]`.
+	void write_data_array(std::ostringstream &os, const std::vector<uint8_t> &data)
+	{
+		os << ",\"data\":[";
+		for (size_t i = 0; i < data.size(); ++i)
+		{
+			if (i > 0) os << ',';
+			os << static_cast<int>(data[i]);
+		}
+		os << ']';
 	}
 
 	struct TrackEventRange
@@ -804,15 +801,6 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 		return g_channel_json.c_str();
 	}
 
-	const char *type_str = "unknown";
-	switch (type_it->second)
-	{
-	case MDSDRV_Data::INS_FM:  type_str = "fm";  break;
-	case MDSDRV_Data::INS_PSG: type_str = "psg"; break;
-	case MDSDRV_Data::INS_PCM: type_str = "pcm"; break;
-	default: break;
-	}
-
 	// Copy base instrument data and apply overrides
 	auto env_it = env_map.find(ins_id);
 	if (env_it != env_map.end() &&
@@ -845,18 +833,10 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 	std::ostringstream os;
 	os << "{\"track_id\":" << best_track_id
 	   << ",\"instrument_id\":" << ins_id
-	   << ",\"instrument_type\":\"" << type_str << "\"";
+	   << ",\"instrument_type\":\"" << instrument_type_name(type_it->second) << "\"";
 
 	if (!effective_data.empty())
-	{
-		os << ",\"data\":[";
-		for (size_t i = 0; i < effective_data.size(); ++i)
-		{
-			if (i > 0) os << ',';
-			os << static_cast<int>(effective_data[i]);
-		}
-		os << ']';
-	}
+		write_data_array(os, effective_data);
 
 	if (fm3_flags >= 0)
 		os << ",\"fm3_flags\":" << fm3_flags;
@@ -893,34 +873,16 @@ extern "C" const char *ctrmml_cmd_wasm_get_instrument_data_json(uint16_t ins_id)
 		return g_ins_json.c_str();
 	}
 
-	const char *type_str = "unknown";
-	switch (type_it->second)
-	{
-	case MDSDRV_Data::INS_FM:  type_str = "fm";  break;
-	case MDSDRV_Data::INS_PSG: type_str = "psg"; break;
-	case MDSDRV_Data::INS_PCM: type_str = "pcm"; break;
-	default: break;
-	}
-
 	const auto &env_map = ins_data->get_envelope_map_view();
 	const auto &data_bank = ins_data->get_data_bank();
 	auto env_it = env_map.find(ins_id);
 
 	std::ostringstream os;
-	os << "{\"instrument_type\":\"" << type_str << "\"";
+	os << "{\"instrument_type\":\"" << instrument_type_name(type_it->second) << "\"";
 
 	if (env_it != env_map.end() && env_it->second >= 0 &&
 		static_cast<size_t>(env_it->second) < data_bank.size())
-	{
-		const auto &data = data_bank[env_it->second];
-		os << ",\"data\":[";
-		for (size_t i = 0; i < data.size(); ++i)
-		{
-			if (i > 0) os << ',';
-			os << static_cast<int>(data[i]);
-		}
-		os << ']';
-	}
+		write_data_array(os, data_bank[env_it->second]);
 
 	os << '}';
 	g_ins_json = os.str();
