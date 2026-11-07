@@ -146,7 +146,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
 
   add_library(ctrmml-cmd-lib STATIC
     ${CTRMML_CMD_CORE_SOURCES}
-    src/ctrmml_cmd_wasm_api.cpp
     src/preview_synth.cpp)
 
   target_include_directories(ctrmml-cmd-lib PUBLIC ${CTRMML_CMD_INCLUDE_DIRS})
