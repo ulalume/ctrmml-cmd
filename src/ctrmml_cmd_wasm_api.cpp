@@ -24,7 +24,6 @@
 
 namespace
 {
-	const float kInvSampleScale = 1.0f / 8388608.0f;
 	constexpr int kMaxChannels = 16;
 	DcBlocker g_dc_blocker;
 	bool g_lowpass_enabled = true;
@@ -342,17 +341,7 @@ extern "C" int ctrmml_cmd_wasm_render_audio(float *output, int frames)
 	}
 
 	for (int i = 0; i < written; ++i)
-	{
-		float l = scratch[i].L * kInvSampleScale;
-		float r = scratch[i].R * kInvSampleScale;
-		g_dc_blocker.process(l, r);
-		if (l > 1.0f) l = 1.0f;
-		if (l < -1.0f) l = -1.0f;
-		if (r > 1.0f) r = 1.0f;
-		if (r < -1.0f) r = -1.0f;
-		output[i * 2 + 0] = l;
-		output[i * 2 + 1] = r;
-	}
+		g_dc_blocker.to_output(scratch[i].L, scratch[i].R, output[i * 2 + 0], output[i * 2 + 1]);
 
 	return written;
 }

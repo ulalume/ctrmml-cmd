@@ -5,11 +5,6 @@
 
 #include <miniaudio.h>
 
-namespace
-{
-	const float kInvSampleScale = 1.0f / 8388608.0f;
-}
-
 AudioOutput::AudioOutput()
 		: device(nullptr), renderer(nullptr), running(false)
 {
@@ -104,17 +99,8 @@ void AudioOutput::fill(int16_t *output, uint32_t frames)
 
 	for (int i = 0; i < written; ++i)
 	{
-		float l = scratch[i].L * kInvSampleScale;
-		float r = scratch[i].R * kInvSampleScale;
-		dc_blocker.process(l, r);
-		if (l > 1.0f)
-			l = 1.0f;
-		if (l < -1.0f)
-			l = -1.0f;
-		if (r > 1.0f)
-			r = 1.0f;
-		if (r < -1.0f)
-			r = -1.0f;
+		float l, r;
+		dc_blocker.to_output(scratch[i].L, scratch[i].R, l, r);
 		output[i * 2 + 0] = static_cast<int16_t>(l * 32767.0f);
 		output[i * 2 + 1] = static_cast<int16_t>(r * 32767.0f);
 	}

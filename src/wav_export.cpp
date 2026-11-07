@@ -17,7 +17,6 @@ namespace
 	const unsigned int kWavChannels = 2;
 	const unsigned int kWavFadeSeconds = 8;
 	const unsigned int kWavLoops = 2;
-	const float kInvSampleScale = 1.0f / 8388608.0f;
 	const char *kExtensibleGuidTrailer = "\x00\x00\x00\x00\x10\x00\x80\x00\x00\xAA\x00\x38\x9B\x71";
 
 	void pack_int16le(uint8_t *d, int16_t n)
@@ -143,13 +142,8 @@ namespace
 
 			for (unsigned int i = 0; i < chunk; ++i)
 			{
-				float l = scratch[i].L * kInvSampleScale;
-				float r = scratch[i].R * kInvSampleScale;
-				dc_blocker.process(l, r);
-				if (l > 1.0f) l = 1.0f;
-				if (l < -1.0f) l = -1.0f;
-				if (r > 1.0f) r = 1.0f;
-				if (r < -1.0f) r = -1.0f;
+				float l, r;
+				dc_blocker.to_output(scratch[i].L, scratch[i].R, l, r);
 				pcm_data.push_back(static_cast<int16_t>(l * 32767.0f));
 				pcm_data.push_back(static_cast<int16_t>(r * 32767.0f));
 			}
@@ -184,13 +178,8 @@ namespace
 				for (unsigned int i = 0; i < chunk; ++i)
 				{
 					float fade = 1.0f - static_cast<float>(fade_rendered + i) / static_cast<float>(fade_frames);
-					float l = scratch[i].L * kInvSampleScale * fade;
-					float r = scratch[i].R * kInvSampleScale * fade;
-					dc_blocker.process(l, r);
-					if (l > 1.0f) l = 1.0f;
-					if (l < -1.0f) l = -1.0f;
-					if (r > 1.0f) r = 1.0f;
-					if (r < -1.0f) r = -1.0f;
+					float l, r;
+					dc_blocker.to_output(scratch[i].L, scratch[i].R, l, r, fade);
 					pcm_data.push_back(static_cast<int16_t>(l * 32767.0f));
 					pcm_data.push_back(static_cast<int16_t>(r * 32767.0f));
 				}
