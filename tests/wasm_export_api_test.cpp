@@ -169,6 +169,24 @@ namespace
 		ok &= expect_cursor_instrument(18, 13, 3);
 		return ok;
 	}
+
+	bool test_instrument_data_follows_compile(const std::filesystem::path &dir)
+	{
+		const std::string with_two = "#platform megadrive\n" + fm_instrument(1, 4) + fm_instrument(2, 5) + "A @2 c\n";
+		const std::string with_one = "#platform megadrive\n" + fm_instrument(1, 4) + "A @1 c\n";
+		bool ok = true;
+		ok &= ctrmml_cmd_wasm_compile(with_two.c_str(), dir.string().c_str()) == 0;
+		ok &= std::string(ctrmml_cmd_wasm_get_instrument_data_json(2)) != "null";
+		ok &= ctrmml_cmd_wasm_compile(with_one.c_str(), dir.string().c_str()) == 0;
+		ok &= std::string(ctrmml_cmd_wasm_get_instrument_data_json(2)) == "null";
+		ctrmml_cmd_wasm_check_json(with_two.c_str(), dir.string().c_str());
+		ok &= std::string(ctrmml_cmd_wasm_get_instrument_data_json(2)) != "null";
+		ok &= ctrmml_cmd_wasm_compile("A @", dir.string().c_str()) != 0;
+		ok &= std::string(ctrmml_cmd_wasm_get_instrument_data_json(1)) == "null";
+		if (!ok)
+			std::cerr << "instrument data should follow the latest compile\n";
+		return ok;
+	}
 }
 
 int main(int argc, char **argv)
@@ -198,6 +216,7 @@ int main(int argc, char **argv)
 	ok &= test_stop_at_pcm_end(output_dir, "mdsdrv");
 	ctrmml_cmd_wasm_set_ym2612_chip_type(0);
 	ok &= test_cursor_channel_instrument(output_dir);
+	ok &= test_instrument_data_follows_compile(output_dir);
 
 	std::filesystem::remove(output_dir / "wasm-bad.wav");
 	std::filesystem::remove(output_dir / "wasm-bad.vgm");

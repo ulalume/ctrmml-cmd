@@ -33,6 +33,7 @@ namespace
 	CompileResult g_compile;
 	std::unique_ptr<VgmAudioRenderer> g_renderer;
 	std::unique_ptr<MDSDRV_Data> g_instrument_data;
+	bool g_instrument_data_stale = false;
 	std::unique_ptr<PreviewSynth> g_preview;
 
 	std::string g_last_error;
@@ -71,22 +72,29 @@ namespace
 		}
 	}
 
-	void rebuild_instrument_data()
+	/** Instrument tables of g_compile.song for the JSON queries, read on the
+	 *  first query after g_compile changes. Null if there is no song or it
+	 *  cannot be read. */
+	const MDSDRV_Data *instrument_data()
 	{
-		if (!g_compile.song)
+		if (g_instrument_data_stale)
 		{
+			g_instrument_data_stale = false;
 			g_instrument_data.reset();
-			return;
+			if (g_compile.song)
+			{
+				try
+				{
+					auto data = std::make_unique<MDSDRV_Data>();
+					data->read_song(*g_compile.song);
+					g_instrument_data = std::move(data);
+				}
+				catch (std::exception &)
+				{
+				}
+			}
 		}
-		try
-		{
-			g_instrument_data = std::make_unique<MDSDRV_Data>();
-			g_instrument_data->read_song(*g_compile.song);
-		}
-		catch (std::exception &)
-		{
-			g_instrument_data.reset();
-		}
+		return g_instrument_data.get();
 	}
 
 	/** Populate MdslinkOptions.inputs from a char** array. Returns false on null entry. */
@@ -138,14 +146,12 @@ extern "C" int ctrmml_cmd_wasm_compile(const char *text, const char *base_dir)
 	}
 
 	g_compile = compile_mml_text(text, base_dir, "input.mml");
+	g_instrument_data_stale = true;
 	if (!g_compile.song)
 	{
 		set_error(g_compile.error);
-		g_instrument_data.reset();
 		return 1;
 	}
-
-	rebuild_instrument_data();
 	return 0;
 }
 
@@ -165,7 +171,7 @@ extern "C" const char *ctrmml_cmd_wasm_check_json(const char *text,
 
 	auto report = ctrmml_cmd::check_text_report(text, base_dir, "input.mml", &g_compile);
 	g_check_json_result = ctrmml_cmd::check_report_json(report);
-	rebuild_instrument_data();
+	g_instrument_data_stale = true;
 
 	return g_check_json_result.c_str();
 }
@@ -181,7 +187,7 @@ extern "C" int ctrmml_cmd_wasm_start_playback(uint32_t sample_rate,
 	g_renderer.reset();
 	g_last_error.clear();
 
-	if (!g_compile.song || !g_compile.tracks || !g_compile.lines)
+	if (!g_compile.song || !g_compile.lines)
 	{
 		set_error("no compiled song");
 		return 1;
@@ -207,7 +213,7 @@ extern "C" int ctrmml_cmd_wasm_start_playback_at_tick(uint32_t sample_rate, uint
 	g_renderer.reset();
 	g_last_error.clear();
 
-	if (!g_compile.song || !g_compile.tracks || !g_compile.lines)
+	if (!g_compile.song)
 	{
 		set_error("no compiled song");
 		return 1;
@@ -248,7 +254,7 @@ extern "C" int ctrmml_cmd_wasm_compile_and_relink(const char *text, const char *
 	}
 
 	g_compile = std::move(new_compile);
-	rebuild_instrument_data();
+	g_instrument_data_stale = true;
 
 	if (had_renderer)
 	{
@@ -652,7 +658,8 @@ namespace
 
 extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, uint32_t col)
 {
-	if (!g_compile.song || !g_compile.lines || !g_compile.tracks || !g_instrument_data)
+	const MDSDRV_Data *ins_data = instrument_data();
+	if (!g_compile.song || !g_compile.lines || !ins_data)
 	{
 		g_channel_json = "null";
 		return g_channel_json.c_str();
@@ -737,9 +744,9 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 	//   earlier lines and from the cursor line before the cursor column
 	// - FM register overrides (Event::PLATFORM) and fm3 flags, from earlier
 	//   lines only
-	const auto &ins_type_map = g_instrument_data->get_ins_type_map();
-	const auto &env_map = g_instrument_data->get_envelope_map_view();
-	const auto &data_bank = g_instrument_data->get_data_bank();
+	const auto &ins_type_map = ins_data->get_ins_type_map();
+	const auto &env_map = ins_data->get_envelope_map_view();
+	const auto &data_bank = ins_data->get_data_bank();
 
 	uint16_t ins_id = 0;
 	int fm3_flags = -1;
@@ -889,13 +896,14 @@ namespace { std::string g_ins_json; }
 
 extern "C" const char *ctrmml_cmd_wasm_get_instrument_data_json(uint16_t ins_id)
 {
-	if (!g_instrument_data)
+	const MDSDRV_Data *ins_data = instrument_data();
+	if (!ins_data)
 	{
 		g_ins_json = "null";
 		return g_ins_json.c_str();
 	}
 
-	const auto &type_map = g_instrument_data->get_ins_type_map();
+	const auto &type_map = ins_data->get_ins_type_map();
 	auto type_it = type_map.find(ins_id);
 	if (type_it == type_map.end())
 	{
@@ -912,8 +920,8 @@ extern "C" const char *ctrmml_cmd_wasm_get_instrument_data_json(uint16_t ins_id)
 	default: break;
 	}
 
-	const auto &env_map = g_instrument_data->get_envelope_map_view();
-	const auto &data_bank = g_instrument_data->get_data_bank();
+	const auto &env_map = ins_data->get_envelope_map_view();
+	const auto &data_bank = ins_data->get_data_bank();
 	auto env_it = env_map.find(ins_id);
 
 	std::ostringstream os;
