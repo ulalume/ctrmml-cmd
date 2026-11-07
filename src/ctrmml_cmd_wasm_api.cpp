@@ -319,31 +319,21 @@ extern "C" int ctrmml_cmd_wasm_render_audio(float *output, int frames)
 	if (static_cast<int>(scratch.size()) < frames)
 		scratch.resize(frames);
 	std::memset(scratch.data(), 0, frames * sizeof(WAVE_32BS));
-	int written = 0;
 
 	if (has_main)
 	{
-		written = g_renderer->get_sample(scratch.data(), frames);
-		if (written < 0)
-			written = 0;
+		g_renderer->get_sample(scratch.data(), frames);
 		if (g_renderer->is_finished() && !g_renderer->last_error().empty())
 			set_error(g_renderer->last_error());
 	}
 
 	if (has_preview)
-	{
-		if (written == 0)
-		{
-			std::memset(scratch.data(), 0, frames * sizeof(WAVE_32BS));
-			written = frames;
-		}
-		g_preview->render(scratch.data(), written);
-	}
+		g_preview->render(scratch.data(), frames);
 
-	for (int i = 0; i < written; ++i)
+	for (int i = 0; i < frames; ++i)
 		g_dc_blocker.to_output(scratch[i].L, scratch[i].R, output[i * 2 + 0], output[i * 2 + 1]);
 
-	return written;
+	return frames;
 }
 
 // ---------------------------------------------------------------------------

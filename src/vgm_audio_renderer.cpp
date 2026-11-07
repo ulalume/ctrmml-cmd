@@ -228,7 +228,7 @@ void VgmAudioRenderer::setup_stream(uint32_t sample_rate)
 	ym2612.set_rate(sample_rate);
 }
 
-int VgmAudioRenderer::get_sample(WAVE_32BS *output, int count)
+void VgmAudioRenderer::get_sample(WAVE_32BS *output, int count)
 {
 	try
 	{
@@ -288,7 +288,6 @@ int VgmAudioRenderer::get_sample(WAVE_32BS *output, int count)
 	{
 		handle_error(e.what());
 	}
-	return count;
 }
 
 void VgmAudioRenderer::end_dac_stream(DacStream &stream)
