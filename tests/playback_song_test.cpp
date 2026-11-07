@@ -1,26 +1,41 @@
 // Renders MML files from the compiled song and from the song after
-// pack_playback_song()/unpack_playback_song(), and requires the same WAV, or
-// the same error text for a song that fails during playback.
+// serialize_song() with source locations and deserialize_song(), and requires
+// the same WAV, or the same error text for a song that fails during playback.
 //
-//   playback-song-test <file.mml>...
+//   playback-song-test [--write-dir <dir>] <file.mml>...
+//
+// With --write-dir, the WAVs rendered from the deserialized songs are written
+// to <dir>, named after the input path with '/' and ' ' replaced by '_', plus
+// ".wav".
 
 #include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <iostream>
 #include <memory>
-#include <random>
 #include <string>
 #include <vector>
 
+#include "binary_file.h"
 #include "mml_compile.h"
-#include "playback_song.h"
 #include "song.h"
+#include "song_blob.h"
 #include "wav_export.h"
 
 namespace
 {
-	bool check_file(const std::string &path, const std::string &empty_dir)
+	std::string output_name(const std::string &path)
+	{
+		std::string name = path;
+		for (char &c : name)
+		{
+			if (c == '/' || c == ' ')
+				c = '_';
+		}
+		return name + ".wav";
+	}
+
+	bool check_file(const std::string &path, const std::string &write_dir)
 	{
 		CompileResult compile = compile_mml_file(path);
 		if (!compile.song)
@@ -29,31 +44,46 @@ namespace
 			return false;
 		}
 
-		std::shared_ptr<Song> copy;
+		auto copy = std::make_shared<Song>();
 		try
 		{
-			std::vector<uint8_t> packed = pack_playback_song(*compile.song);
-			copy = unpack_playback_song(packed.data(), packed.size());
+			std::vector<uint8_t> blob = serialize_song(*compile.song, true);
+			deserialize_song(blob.data(), blob.size(), *copy);
 		}
 		catch (std::exception &e)
 		{
-			std::cerr << "failed: " << path << ": packing: " << e.what() << '\n';
+			std::cerr << "failed: " << path << ": serialization: " << e.what() << '\n';
 			return false;
 		}
-		copy->get_tag_map()["include_path"] = {empty_dir};
+		// Its samples come only from the serialized data.
+		if (!copy->get_tag_map().at("include_path").empty())
+		{
+			std::cerr << "failed: " << path << ": the deserialized song has include paths\n";
+			return false;
+		}
 
 		std::vector<uint8_t> direct;
-		std::vector<uint8_t> via_pack;
+		std::vector<uint8_t> via_blob;
 		ExportResult direct_result = render_wav(compile.song, direct);
-		ExportResult pack_result = render_wav(copy, via_pack);
-		if (direct_result.ok != pack_result.ok || direct_result.error != pack_result.error)
+		ExportResult blob_result = render_wav(copy, via_blob);
+		if (direct_result.ok != blob_result.ok || direct_result.error != blob_result.error)
 		{
 			std::cerr << "differs: " << path << ": direct: "
-								<< (direct_result.ok ? "ok" : direct_result.error) << ", packed: "
-								<< (pack_result.ok ? "ok" : pack_result.error) << '\n';
+								<< (direct_result.ok ? "ok" : direct_result.error) << ", via blob: "
+								<< (blob_result.ok ? "ok" : blob_result.error) << '\n';
 			return false;
 		}
-		if (direct != via_pack)
+		if (!write_dir.empty() && blob_result.ok)
+		{
+			std::string error;
+			std::string out = (std::filesystem::path(write_dir) / output_name(path)).string();
+			if (!write_binary_file(out, via_blob, error))
+			{
+				std::cerr << "failed: " << path << ": " << error << '\n';
+				return false;
+			}
+		}
+		if (direct != via_blob)
 		{
 			std::cerr << "differs: " << path << '\n';
 			return false;
@@ -65,20 +95,24 @@ namespace
 
 int main(int argc, char **argv)
 {
-	if (argc < 2)
+	std::string write_dir;
+	std::vector<std::string> files;
+	for (int i = 1; i < argc; i++)
 	{
-		std::cerr << "usage: playback-song-test <file.mml>...\n";
+		std::string arg = argv[i];
+		if (arg == "--write-dir" && i + 1 < argc)
+			write_dir = argv[++i];
+		else
+			files.push_back(arg);
+	}
+	if (files.empty())
+	{
+		std::cerr << "usage: playback-song-test [--write-dir <dir>] <file.mml>...\n";
 		return 2;
 	}
 
-	std::filesystem::path empty_dir = std::filesystem::temp_directory_path() /
-			("playback-song-test-" + std::to_string(std::random_device{}()));
-	std::filesystem::create_directories(empty_dir);
-
 	bool ok = true;
-	for (int i = 1; i < argc; i++)
-		ok &= check_file(argv[i], (empty_dir / "").string());
-
-	std::filesystem::remove_all(empty_dir);
+	for (const std::string &file : files)
+		ok &= check_file(file, write_dir);
 	return ok ? 0 : 1;
 }

@@ -1,6 +1,6 @@
 // The song player and preview synth of the wasm API as a module of their own,
 // for an AudioWorkletProcessor: no Emscripten JavaScript, a fixed memory and
-// only WASI imports. Songs come from the main module as pack_playback_song()
+// only WASI imports. Songs come from the main module as serialize_song()
 // bytes, copied into the inbox.
 //
 // Output and error text match ctrmml_cmd_wasm_render_audio() and
@@ -17,8 +17,8 @@
 
 #include "dc_blocker.h"
 #include "lowpass_filter.h"
-#include "playback_song.h"
 #include "preview_synth.h"
+#include "song_blob.h"
 #include "vgm_audio_renderer.h"
 
 #define PLAYER_EXPORT(name) extern "C" __attribute__((export_name(#name)))
@@ -63,7 +63,8 @@ namespace
 		{
 			if (size > g_inbox.size())
 				throw std::invalid_argument("song data is truncated");
-			std::shared_ptr<Song> song = unpack_playback_song(g_inbox.data(), size);
+			auto song = std::make_shared<Song>();
+			deserialize_song(g_inbox.data(), size, *song);
 			release_inbox();
 			return song;
 		}

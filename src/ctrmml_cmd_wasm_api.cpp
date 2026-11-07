@@ -15,9 +15,9 @@
 #include "mdslink_tool.h"
 #include "mml_compile.h"
 #include "platform/mdsdrv.h"
-#include "playback_song.h"
 #include "preview_synth.h"
 #include "rom_builder.h"
+#include "song_blob.h"
 #include "template_rom_data.h"
 #include "vgm_audio_renderer.h"
 #include "vgm_export.h"
@@ -268,7 +268,7 @@ extern "C" const uint8_t *ctrmml_cmd_wasm_serialize_song(uint32_t *size)
 	}
 	try
 	{
-		g_playback_song = pack_playback_song(*g_compile.song);
+		g_playback_song = serialize_song(*g_compile.song, true);
 	}
 	catch (std::exception &e)
 	{
