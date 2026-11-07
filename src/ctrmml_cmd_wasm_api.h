@@ -13,29 +13,12 @@ extern "C"
 	const char *ctrmml_cmd_wasm_get_compile_error();
 	const char *ctrmml_cmd_wasm_check_json(const char *text, const char *base_dir);
 
-	// Real-time playback
-	int ctrmml_cmd_wasm_start_playback(uint32_t sample_rate,
-																		 uint32_t start_line,
-																		 uint32_t start_col);
-	void ctrmml_cmd_wasm_stop_playback();
-	int ctrmml_cmd_wasm_is_playing();
-	int ctrmml_cmd_wasm_render_audio(float *output, int frames);
-	void ctrmml_cmd_wasm_set_mute_mask(int32_t chip_id, uint32_t mask);
-	// 0 = YM2612 ladder DAC (default), 1 = clean YM3438 DAC.
-	void ctrmml_cmd_wasm_set_ym2612_chip_type(int chip_type);
+	// The compiled song as the player module loads it: serialize_song() with
+	// source locations. The bytes come from malloc(); free() them once copied.
+	// Null on failure, with the reason in ctrmml_cmd_wasm_get_last_error().
+	uint8_t *ctrmml_cmd_wasm_pack_song(uint32_t *size);
 
-	// Recompile and (if playing) rebuild the audio renderer at the current
-	// player tick. Returns 0 on success, 1 on compile error (existing
-	// playback is preserved on error so audio can keep playing).
-	int ctrmml_cmd_wasm_compile_and_relink(const char *text, const char *base_dir);
-
-	// The compiled song as the player module loads it (pack_playback_song()).
-	// The bytes stay valid until the next call; null on failure, with the
-	// reason in ctrmml_cmd_wasm_get_last_error().
-	const uint8_t *ctrmml_cmd_wasm_serialize_song(uint32_t *size);
-
-	// Tick tracking + highlights
-	uint32_t ctrmml_cmd_wasm_get_player_ticks();
+	// Highlights
 	uint32_t ctrmml_cmd_wasm_get_highlights(uint32_t ticks,
 																					uint32_t *lines,
 																					uint32_t *cols,
@@ -43,6 +26,8 @@ extern "C"
 	int32_t ctrmml_cmd_wasm_find_cursor_tick(uint32_t line, uint32_t col);
 
 	// Export (writes to MEMFS paths, JS reads via FS.readFile)
+	// The chip of WAV exports: 0 = YM2612 ladder DAC (default), 1 = clean YM3438 DAC.
+	void ctrmml_cmd_wasm_set_ym2612_chip_type(int chip_type);
 	int ctrmml_cmd_wasm_export_vgm(const char *text,
 																 const char *base_dir,
 																 const char *out_path);
@@ -70,24 +55,6 @@ extern "C"
 
 	// Instrument data lookup by ID
 	const char *ctrmml_cmd_wasm_get_instrument_data_json(uint16_t ins_id);
-
-	// Audio low-pass filter (analog output stage emulation)
-	void ctrmml_cmd_wasm_set_lowpass_filter(int enabled, float cutoff_hz);
-	// Finish the current playback once PCM output ends (the sample plays out
-// or the DAC is switched off).
-	// Each start_playback call begins with this off.
-	void ctrmml_cmd_wasm_set_stop_at_pcm_end(int enabled);
-
-	// Preview synth — standalone chip emulator for note preview / MIDI
-	void preview_init(uint32_t sample_rate);
-	void preview_deinit();
-	void preview_load_fm(const uint8_t *data, int len);
-	void preview_load_psg(const uint8_t *data, int len);
-	void preview_set_mode(int mode);
-	void preview_note_on(uint8_t midi_note, uint8_t velocity);
-	void preview_note_on_attenuation(uint8_t midi_note, uint8_t tl_attenuation);
-	void preview_note_off(uint8_t midi_note);
-	void preview_all_notes_off();
 
 #ifdef __cplusplus
 }

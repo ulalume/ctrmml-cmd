@@ -14,6 +14,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # exceptions in the legacy encoding, which Safari supports from 15.2.
 if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   add_compile_options(-fwasm-exceptions "SHELL:-sWASM_LEGACY_EXCEPTIONS=1")
+  add_link_options(-fwasm-exceptions "SHELL:-sWASM_LEGACY_EXCEPTIONS=1")
 endif()
 
 set(CTRMML_TEMPLATE_ROM "${CMAKE_CURRENT_SOURCE_DIR}/assets/template.bin")
@@ -41,7 +42,7 @@ include(FetchContent)
 FetchContent_Declare(
   ctrmml
   GIT_REPOSITORY https://github.com/ulalume/ctrmml.git
-  GIT_TAG 489e26f
+  GIT_TAG e9877be
 )
 FetchContent_Declare(
   ymfm
@@ -84,7 +85,7 @@ set(CTRMML_CMD_PLAYBACK_SOURCES
   src/ymfm_ym2612_device.cpp
   src/mame_sn76496_device.cpp
   src/preview_synth.cpp
-  src/playback_song.cpp)
+  src/playback.cpp)
 
 set(CTRMML_CMD_CORE_SOURCES
   src/binary_file.cpp
@@ -132,6 +133,9 @@ target_link_libraries(ctrmml-cmd-playback PRIVATE
   ctrmml-cmd-csources)
 if(MSVC)
   target_compile_options(ctrmml-cmd-playback PRIVATE /FIstring)
+else()
+  # No fused multiply-adds: a native build renders the bits of the wasm player.
+  target_compile_options(ctrmml-cmd-playback PRIVATE -ffp-contract=off)
 endif()
 
 set(CTRMML_CMD_LINK_LIBS
@@ -182,11 +186,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   endif()
 
   target_link_options(ctrmml-cmd-wasm PRIVATE
-    -fwasm-exceptions
-    "SHELL:-sWASM_LEGACY_EXCEPTIONS=1"
     "SHELL:-sALLOW_MEMORY_GROWTH=1"
-    "SHELL:-sEXPORTED_FUNCTIONS=_malloc,_free,_ctrmml_cmd_wasm_compile,_ctrmml_cmd_wasm_get_compile_error,_ctrmml_cmd_wasm_check_json,_ctrmml_cmd_wasm_start_playback,_ctrmml_cmd_wasm_start_playback_at_tick,_ctrmml_cmd_wasm_stop_playback,_ctrmml_cmd_wasm_is_playing,_ctrmml_cmd_wasm_render_audio,_ctrmml_cmd_wasm_set_mute_mask,_ctrmml_cmd_wasm_set_ym2612_chip_type,_ctrmml_cmd_wasm_set_lowpass_filter,_ctrmml_cmd_wasm_set_stop_at_pcm_end,_ctrmml_cmd_wasm_compile_and_relink,_ctrmml_cmd_wasm_serialize_song,_ctrmml_cmd_wasm_get_player_ticks,_ctrmml_cmd_wasm_get_highlights,_ctrmml_cmd_wasm_export_vgm,_ctrmml_cmd_wasm_export_wav,_ctrmml_cmd_wasm_quickrom,_ctrmml_cmd_wasm_mdslink,_ctrmml_cmd_wasm_get_last_error,_ctrmml_cmd_wasm_get_track_data_json,_ctrmml_cmd_wasm_find_cursor_tick,_ctrmml_cmd_wasm_find_cursor_channel_json,_ctrmml_cmd_wasm_get_instrument_data_json,_ctrmml_cmd_wasm_get_quickrom_info,_ctrmml_cmd_wasm_get_mdslink_info,_preview_init,_preview_deinit,_preview_load_fm,_preview_load_psg,_preview_set_mode,_preview_note_on,_preview_note_on_attenuation,_preview_note_off,_preview_all_notes_off,_preview_set_fm_op_mask,_preview_set_mono"
-    "SHELL:-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,stringToUTF8,lengthBytesUTF8,UTF8ToString,HEAPF32,HEAPU32,FS"
+    "SHELL:-sEXPORTED_FUNCTIONS=_malloc,_free,_ctrmml_cmd_wasm_compile,_ctrmml_cmd_wasm_get_compile_error,_ctrmml_cmd_wasm_check_json,_ctrmml_cmd_wasm_pack_song,_ctrmml_cmd_wasm_set_ym2612_chip_type,_ctrmml_cmd_wasm_get_highlights,_ctrmml_cmd_wasm_export_vgm,_ctrmml_cmd_wasm_export_wav,_ctrmml_cmd_wasm_quickrom,_ctrmml_cmd_wasm_mdslink,_ctrmml_cmd_wasm_get_last_error,_ctrmml_cmd_wasm_get_track_data_json,_ctrmml_cmd_wasm_find_cursor_tick,_ctrmml_cmd_wasm_find_cursor_channel_json,_ctrmml_cmd_wasm_get_instrument_data_json,_ctrmml_cmd_wasm_get_quickrom_info,_ctrmml_cmd_wasm_get_mdslink_info"
+    "SHELL:-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,stringToUTF8,lengthBytesUTF8,UTF8ToString,HEAPU8,HEAPF32,HEAPU32,FS"
     "SHELL:-sENVIRONMENT=web"
     "SHELL:-sMODULARIZE=1"
     "SHELL:-sEXPORT_NAME=createCtrmmlModule"
@@ -197,8 +199,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   # instantiate from bytes: no Emscripten JavaScript, a fixed memory and only
   # WASI imports. See src/ctrmml_player.cpp.
   set(CTRMML_PLAYER_LINK_OPTIONS
-    -fwasm-exceptions
-    "SHELL:-sWASM_LEGACY_EXCEPTIONS=1"
     "SHELL:-sSTANDALONE_WASM=1"
     --no-entry
     "SHELL:-sALLOW_MEMORY_GROWTH=0"
@@ -225,6 +225,17 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   target_link_options(ctrmml-player-heap-probe PRIVATE
     ${CTRMML_PLAYER_LINK_OPTIONS}
     "SHELL:-sINITIAL_MEMORY=268435456")
+
+  # The player against the Playback class of a native build, on the fixtures.
+  set(CTRMML_PLAYER_REFERENCE "" CACHE FILEPATH
+    "player-reference of a native build, for the player_parity test")
+  find_program(CTRMML_NODE node)
+  if(BUILD_TESTING AND CTRMML_PLAYER_REFERENCE AND CTRMML_NODE)
+    add_test(NAME player_parity
+      COMMAND ${CTRMML_NODE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/player/parity.mjs"
+        --reference "${CTRMML_PLAYER_REFERENCE}" --seconds 10 "${CMAKE_CURRENT_BINARY_DIR}")
+    set_tests_properties(player_parity PROPERTIES TIMEOUT 300)
+  endif()
 
 else()
   # ---------- Native build ----------
@@ -315,16 +326,6 @@ else()
     add_test(NAME audio_render COMMAND audio-render-test)
     set_tests_properties(audio_render PROPERTIES TIMEOUT 20)
 
-    add_executable(song-blob-test tests/song_blob_test.cpp)
-    target_include_directories(song-blob-test PRIVATE ${CTRMML_CMD_INCLUDE_DIRS})
-    target_link_libraries(song-blob-test PRIVATE ctrmml-cmd-lib)
-
-    add_test(NAME song_blob
-      COMMAND song-blob-test
-        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/song_blob_fm_psg.mml"
-        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/song_blob_pcm/song_blob_pcm.mml")
-    set_tests_properties(song_blob PROPERTIES TIMEOUT 60)
-
     add_executable(playback-song-test tests/playback_song_test.cpp)
     target_include_directories(playback-song-test PRIVATE ${CTRMML_CMD_INCLUDE_DIRS})
     target_link_libraries(playback-song-test PRIVATE ctrmml-cmd-lib)
@@ -336,6 +337,18 @@ else()
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/channel_macro_repro.mml"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/channel_nested_loop.mml")
     set_tests_properties(playback_song PROPERTIES TIMEOUT 60)
+
+    add_executable(playback-test tests/playback_test.cpp)
+    target_include_directories(playback-test PRIVATE ${CTRMML_CMD_INCLUDE_DIRS})
+    target_link_libraries(playback-test PRIVATE ctrmml-cmd-lib)
+
+    add_test(NAME playback COMMAND playback-test)
+    set_tests_properties(playback PROPERTIES TIMEOUT 20)
+
+    # Replays the scripts of tests/player/parity.mjs.
+    add_executable(player-reference tests/player/reference.cpp)
+    target_include_directories(player-reference PRIVATE ${CTRMML_CMD_INCLUDE_DIRS})
+    target_link_libraries(player-reference PRIVATE ctrmml-cmd-lib)
 
     add_executable(preview-volume-test tests/preview_volume_test.cpp)
     target_include_directories(preview-volume-test PRIVATE src)
