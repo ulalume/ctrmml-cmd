@@ -193,6 +193,26 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
     "SHELL:-sASSERTIONS=${_CTRMML_WASM_ASSERTIONS}"
     "SHELL:-sSTRICT=1")
 
+  # The song player and preview synth alone, for an AudioWorkletProcessor to
+  # instantiate from bytes: no Emscripten JavaScript, a fixed memory and only
+  # WASI imports. See src/ctrmml_player.cpp.
+  set(CTRMML_PLAYER_LINK_OPTIONS
+    -fwasm-exceptions
+    "SHELL:-sWASM_LEGACY_EXCEPTIONS=1"
+    "SHELL:-sSTANDALONE_WASM=1"
+    --no-entry
+    "SHELL:-sALLOW_MEMORY_GROWTH=0"
+    "SHELL:-sSTACK_SIZE=262144")
+
+  add_executable(ctrmml-player src/ctrmml_player.cpp)
+  target_link_libraries(ctrmml-player PRIVATE ctrmml-cmd-playback)
+  set_target_properties(ctrmml-player PROPERTIES
+    OUTPUT_NAME "ctrmml_player"
+    SUFFIX ".wasm")
+  target_link_options(ctrmml-player PRIVATE
+    ${CTRMML_PLAYER_LINK_OPTIONS}
+    "SHELL:-sINITIAL_MEMORY=33554432")
+
 else()
   # ---------- Native build ----------
   add_library(ctrmml-cmd-lib STATIC
