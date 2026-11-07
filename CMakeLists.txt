@@ -77,6 +77,13 @@ foreach(tgt mmlc mdslink)
   endif()
 endforeach()
 
+# Song playback and the preview synth, without the compiler, checks and exports.
+set(CTRMML_CMD_PLAYBACK_SOURCES
+  src/vgm_audio_renderer.cpp
+  src/ymfm_ym2612_device.cpp
+  src/mame_sn76496_device.cpp
+  src/preview_synth.cpp)
+
 set(CTRMML_CMD_CORE_SOURCES
   src/binary_file.cpp
   src/check_channel_events.cpp
@@ -87,11 +94,8 @@ set(CTRMML_CMD_CORE_SOURCES
   src/mdslink_tool.cpp
   src/rom_builder.cpp
   "${CTRMML_TEMPLATE_SRC}"
-  src/vgm_audio_renderer.cpp
   src/vgm_export.cpp
   src/wav_export.cpp
-  src/ymfm_ym2612_device.cpp
-  src/mame_sn76496_device.cpp
   src/ctrmml_cmd.cpp
   src/ctrmml_cmd_c_api.cpp)
 
@@ -118,7 +122,18 @@ add_library(ymfm-core STATIC
   src/ymfm_explicit_inst.cpp)
 target_include_directories(ymfm-core PUBLIC ${ymfm_SOURCE_DIR}/src)
 
+add_library(ctrmml-cmd-playback STATIC ${CTRMML_CMD_PLAYBACK_SOURCES})
+target_include_directories(ctrmml-cmd-playback PUBLIC ${CTRMML_CMD_INCLUDE_DIRS})
+target_link_libraries(ctrmml-cmd-playback PRIVATE
+  ctrmml
+  ymfm-core
+  ctrmml-cmd-csources)
+if(MSVC)
+  target_compile_options(ctrmml-cmd-playback PRIVATE /FIstring)
+endif()
+
 set(CTRMML_CMD_LINK_LIBS
+  ctrmml-cmd-playback
   ctrmml
   ymfm-core
   ctrmml-cmd-csources)
@@ -145,9 +160,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
     endif()
   endif()
 
-  add_library(ctrmml-cmd-lib STATIC
-    ${CTRMML_CMD_CORE_SOURCES}
-    src/preview_synth.cpp)
+  add_library(ctrmml-cmd-lib STATIC ${CTRMML_CMD_CORE_SOURCES})
 
   target_include_directories(ctrmml-cmd-lib PUBLIC ${CTRMML_CMD_INCLUDE_DIRS})
   target_link_libraries(ctrmml-cmd-lib PRIVATE ${CTRMML_CMD_LINK_LIBS})
@@ -248,8 +261,7 @@ else()
 
     add_executable(wasm-export-api-test
       tests/wasm_export_api_test.cpp
-      src/ctrmml_cmd_wasm_api.cpp
-      src/preview_synth.cpp)
+      src/ctrmml_cmd_wasm_api.cpp)
     target_include_directories(wasm-export-api-test PRIVATE ${CTRMML_CMD_INCLUDE_DIRS})
     target_link_libraries(wasm-export-api-test PRIVATE ctrmml-cmd-lib)
 
@@ -260,9 +272,7 @@ else()
         "${CMAKE_CURRENT_BINARY_DIR}/export-path-test-wasm-api")
     set_tests_properties(export_paths_wasm_api PROPERTIES TIMEOUT 20)
 
-    add_executable(audio-render-test
-      tests/audio_render_test.cpp
-      src/preview_synth.cpp)
+    add_executable(audio-render-test tests/audio_render_test.cpp)
     target_include_directories(audio-render-test PRIVATE ${CTRMML_CMD_INCLUDE_DIRS})
     target_link_libraries(audio-render-test PRIVATE ctrmml-cmd-lib)
 
