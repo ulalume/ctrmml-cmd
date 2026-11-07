@@ -83,7 +83,8 @@ set(CTRMML_CMD_PLAYBACK_SOURCES
   src/vgm_audio_renderer.cpp
   src/ymfm_ym2612_device.cpp
   src/mame_sn76496_device.cpp
-  src/preview_synth.cpp)
+  src/preview_synth.cpp
+  src/playback.cpp)
 
 set(CTRMML_CMD_CORE_SOURCES
   src/binary_file.cpp
