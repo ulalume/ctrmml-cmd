@@ -39,6 +39,8 @@ struct CheckMessage
 																const std::string &display_name,
 																CompileResult *out_compile = nullptr);
 	std::string check_report_json(const CheckReport &report);
+	//! Appends `value` to `out` as a quoted, escaped JSON string.
+	void append_json_string(std::string &out, const std::string &value);
 
 	CheckResult check_file(const std::string &path);
 	CheckResult check_text(const std::string &text,

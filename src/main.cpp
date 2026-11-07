@@ -208,30 +208,10 @@ namespace
 
 	void emit_playback_error(const std::string &message)
 	{
-		std::cout << R"({"type":"playback_error","message":")";
-		for (unsigned char c : message)
-		{
-			switch (c)
-			{
-			case '"': std::cout << "\\\""; break;
-			case '\\': std::cout << "\\\\"; break;
-			case '\n': std::cout << "\\n"; break;
-			case '\r': std::cout << "\\r"; break;
-			case '\t': std::cout << "\\t"; break;
-			default:
-				if (c < 0x20)
-				{
-					char escaped[7];
-					std::snprintf(escaped, sizeof(escaped), "\\u%04x", c);
-					std::cout << escaped;
-				}
-				else
-				{
-					std::cout << static_cast<char>(c);
-				}
-			}
-		}
-		std::cout << "\"}\n" << std::flush;
+		std::string out = R"({"type":"playback_error","message":)";
+		ctrmml_cmd::append_json_string(out, message);
+		out += "}\n";
+		std::cout << out << std::flush;
 	}
 
 }
@@ -389,9 +369,10 @@ int main(int argc, char **argv)
 
 		if (!compile.song || !compile.lines)
 		{
-			std::ostringstream err;
-			err << R"({"error":")" << compile.error << R"("})";
-			std::cout << err.str() << std::endl;
+			std::string err = R"({"error":)";
+			ctrmml_cmd::append_json_string(err, compile.error);
+			err += '}';
+			std::cout << err << std::endl;
 			return 1;
 		}
 

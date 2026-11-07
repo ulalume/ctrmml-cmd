@@ -111,24 +111,6 @@ namespace
 		}
 		return true;
 	}
-
-	void json_escape(std::ostringstream &os, const char *s)
-	{
-		os << '"';
-		for (; *s; ++s)
-		{
-			switch (*s)
-			{
-			case '"': os << "\\\""; break;
-			case '\\': os << "\\\\"; break;
-			case '\n': os << "\\n"; break;
-			case '\r': os << "\\r"; break;
-			case '\t': os << "\\t"; break;
-			default: os << *s;
-			}
-		}
-		os << '"';
-	}
 }
 
 // ---------------------------------------------------------------------------
