@@ -17,10 +17,9 @@
 
 namespace
 {
+	// Only the PSG channels can hold events MDSDRV does not support.
 	constexpr uint16_t kFirstPsgTrack = 6;
 	constexpr uint16_t kLastPsgTrack = 9;
-	constexpr uint16_t kFirstDummyTrack = 10;
-	constexpr uint16_t kChannelTrackCount = 16;
 
 	enum class ForbiddenEventKind
 	{
@@ -70,6 +69,36 @@ namespace
 		return out;
 	}
 
+	// The track that holds each event, indexed on the first lookup.
+	class EventTracks
+	{
+	public:
+		explicit EventTracks(Song &song)
+				: song(song)
+		{
+		}
+
+		uint16_t find(const Event *event, uint16_t fallback)
+		{
+			if (!indexed)
+			{
+				for (auto &[track_id, track] : song.get_track_map())
+				{
+					for (auto &track_event : track.get_events())
+						track_ids.emplace(&track_event, track_id);
+				}
+				indexed = true;
+			}
+			auto it = track_ids.find(event);
+			return it == track_ids.end() ? fallback : it->second;
+		}
+
+	private:
+		Song &song;
+		bool indexed = false;
+		std::unordered_map<const Event *, uint16_t> track_ids;
+	};
+
 	class ChannelEventChecker : public Basic_Player
 	{
 	public:
@@ -77,17 +106,13 @@ namespace
 				Song &song,
 				Track &track,
 				uint16_t channel_id,
-				const std::string &display_name)
+				const std::string &display_name,
+				EventTracks &event_tracks)
 				: Basic_Player(song, track),
 					channel_id(channel_id),
-					display_name(display_name)
+					display_name(display_name),
+					event_tracks(event_tracks)
 		{
-			for (auto &[track_id, candidate] : song.get_track_map())
-			{
-				for (auto &candidate_event : candidate.get_events())
-					event_track_ids.emplace(&candidate_event, track_id);
-			}
-
 			while (is_enabled())
 				step_event();
 		}
@@ -107,15 +132,11 @@ namespace
 			if (kind == ForbiddenEventKind::NONE || !seen_events.insert(track_event).second)
 				return;
 
-			auto track_it = event_track_ids.find(track_event);
-			uint16_t event_track_id = track_it == event_track_ids.end()
-												? channel_id
-												: track_it->second;
 			warnings.push_back(make_warning(
 					event.reference,
 					display_name,
 					channel_id,
-					event_track_id,
+					event_tracks.find(track_event, channel_id),
 					is_inside_jump(),
 					kind));
 		}
@@ -131,8 +152,6 @@ namespace
 
 		ForbiddenEventKind forbidden_event_kind(const Event &candidate)
 		{
-			if (channel_id < kFirstPsgTrack || channel_id > kLastPsgTrack)
-				return ForbiddenEventKind::NONE;
 			if (candidate.type == Event::PAN)
 				return ForbiddenEventKind::PAN;
 			if (candidate.type == Event::PAN_ENVELOPE)
@@ -157,7 +176,7 @@ namespace
 
 		uint16_t channel_id;
 		std::string display_name;
-		std::unordered_map<const Event *, uint16_t> event_track_ids;
+		EventTracks &event_tracks;
 		std::set<const Event *> seen_events;
 		std::vector<ctrmml_cmd::CheckMessage> warnings;
 	};
@@ -170,14 +189,15 @@ namespace ctrmml_cmd
 			const std::string &display_name)
 	{
 		std::vector<CheckMessage> warnings;
+		EventTracks event_tracks(song);
 		for (auto &[track_id, track] : song.get_track_map())
 		{
-			if (track_id >= kChannelTrackCount)
+			if (track_id > kLastPsgTrack)
 				break;
-			if (track_id >= kFirstDummyTrack)
+			if (track_id < kFirstPsgTrack)
 				continue;
 
-			ChannelEventChecker checker(song, track, track_id, display_name);
+			ChannelEventChecker checker(song, track, track_id, display_name, event_tracks);
 			auto channel_warnings = checker.take_warnings();
 			warnings.insert(
 					warnings.end(),
