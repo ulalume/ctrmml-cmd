@@ -320,7 +320,7 @@ void PreviewSynth::psg_write(uint8_t data)
 {
 	if (!sn76496)
 		return;
-	sn76496->write(0, data);
+	sn76496->write(0, 0, data);
 }
 
 void PreviewSynth::load_psg(const uint8_t *data, int len)

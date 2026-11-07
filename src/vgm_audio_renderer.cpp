@@ -9,14 +9,14 @@
 
 namespace
 {
-	// VGM chip IDs used as device map keys
+	// VGM chip IDs
 	constexpr int DEVID_SN76496 = 0x00;
 	constexpr int DEVID_YM2612 = 0x02;
 }
 
 SoundDevice::SoundDevice()
-		: resmpl{}, dev_init(false), resmpl_init(false), chip_type(CHIP_NONE),
-		  sample_rate(0), volume(kDefaultOutputVolume), ym2612_chip_type(Ym2612ChipType::Ym2612),
+		: resmpl{}, resmpl_init(false), chip_type(CHIP_NONE),
+		  volume(kDefaultOutputVolume), ym2612_chip_type(Ym2612ChipType::Ym2612),
 		  lowpass_enabled(true), lowpass_cutoff(LowPassFilter::kDefaultCutoffHz)
 {
 }
@@ -39,7 +39,6 @@ void SoundDevice::reset_device()
 	resmpl = {};
 	lowpass.last_l = 0;
 	lowpass.last_r = 0;
-	dev_init = false;
 	chip_type = CHIP_NONE;
 }
 
@@ -79,15 +78,13 @@ uint16_t SoundDevice::get_default_volume() const
 
 void SoundDevice::set_rate(uint32_t rate)
 {
-	sample_rate = rate;
-
 	if (resmpl_init)
 	{
 		Resmpl_Deinit(&resmpl);
 		resmpl_init = false;
 	}
 
-	if (dev_init)
+	if (chip_type != CHIP_NONE)
 	{
 		if (chip_type == CHIP_YM2612)
 			resmpl.smpRateSrc = ymfm_ym2612->sample_rate();
@@ -98,7 +95,7 @@ void SoundDevice::set_rate(uint32_t rate)
 		// The filter runs on the chip's own output, at the chip's rate.
 		lowpass.init(resmpl.smpRateSrc, lowpass_cutoff);
 		lowpass.enabled = lowpass_enabled;
-		Resmpl_SetVals(&resmpl, 0xff, volume, sample_rate);
+		Resmpl_SetVals(&resmpl, 0xff, volume, rate);
 		Resmpl_Init(&resmpl);
 		resmpl_init = true;
 	}
@@ -109,7 +106,6 @@ void SoundDevice::init_sn76489(uint32_t freq, uint8_t lfsr_w, uint16_t lfsr_t)
 	reset_device();
 
 	mame_sn76496 = std::make_unique<MameSn76496Device>(freq, lfsr_w, lfsr_t);
-	dev_init = true;
 	chip_type = CHIP_SN76496;
 }
 
@@ -118,14 +114,7 @@ void SoundDevice::init_ym2612(uint32_t freq)
 	reset_device();
 
 	ymfm_ym2612 = std::make_unique<YmfmYm2612Device>(freq, ym2612_chip_type);
-	dev_init = true;
 	chip_type = CHIP_YM2612;
-}
-
-void SoundDevice::write(uint16_t addr, uint16_t data)
-{
-	if (chip_type == CHIP_SN76496)
-		mame_sn76496->write(static_cast<uint8_t>(data));
 }
 
 void SoundDevice::write(uint8_t port, uint16_t addr, uint16_t data)
@@ -183,19 +172,29 @@ std::shared_ptr<Driver> &VgmAudioRenderer::get_driver()
 	return driver;
 }
 
+SoundDevice *VgmAudioRenderer::device(int chip_id)
+{
+	switch (chip_id)
+	{
+	case DEVID_SN76496:
+		return &sn76496;
+	case DEVID_YM2612:
+		return &ym2612;
+	default:
+		return nullptr;
+	}
+}
+
 void VgmAudioRenderer::set_mute_mask(int chip_id, uint32_t mask)
 {
-	auto it = devices.find(chip_id);
-	if (it != devices.end())
-		it->second.set_mute_mask(mask);
+	if (SoundDevice *dev = device(chip_id))
+		dev->set_mute_mask(mask);
 }
 
 void VgmAudioRenderer::set_ym2612_chip_type(Ym2612ChipType chip_type)
 {
 	ym2612_chip_type = chip_type;
-	auto it = devices.find(DEVID_YM2612);
-	if (it != devices.end())
-		it->second.set_ym2612_chip_type(chip_type);
+	ym2612.set_ym2612_chip_type(chip_type);
 }
 
 Ym2612ChipType VgmAudioRenderer::get_ym2612_chip_type() const
@@ -208,8 +207,8 @@ void VgmAudioRenderer::set_lowpass(bool enabled, double cutoff_hz)
 	lowpass_enabled = enabled;
 	if (cutoff_hz > 0.0)
 		lowpass_cutoff = cutoff_hz;
-	for (auto &device_pair : devices)
-		device_pair.second.set_lowpass(lowpass_enabled, lowpass_cutoff);
+	sn76496.set_lowpass(lowpass_enabled, lowpass_cutoff);
+	ym2612.set_lowpass(lowpass_enabled, lowpass_cutoff);
 }
 
 void VgmAudioRenderer::set_stop_at_pcm_end(bool enabled)
@@ -225,8 +224,8 @@ void VgmAudioRenderer::setup_stream(uint32_t sample_rate)
 	sample_delta = 1.0f / static_cast<float>(sample_rate);
 	delta_time = 0;
 
-	for (auto &device_pair : devices)
-		device_pair.second.set_rate(sample_rate);
+	sn76496.set_rate(sample_rate);
+	ym2612.set_rate(sample_rate);
 }
 
 int VgmAudioRenderer::get_sample(WAVE_32BS *output, int count)
@@ -256,24 +255,26 @@ int VgmAudioRenderer::get_sample(WAVE_32BS *output, int count)
 				stream.counter += stream.freq;
 				while (stream.counter >= sample_rate)
 				{
-					devices[stream.chip_id].write(
-							stream.port,
-							stream.reg,
-							datablocks[stream.db_id][stream.position]);
+					if (!stream.block || stream.position >= stream.block->size())
+					{
+						end_dac_stream(stream);
+						break;
+					}
+					if (stream.device)
+						stream.device->write(stream.port, stream.reg, (*stream.block)[stream.position]);
 					stream.position++;
 					stream.counter -= sample_rate;
 					if (!--stream.length)
 					{
-						stream.active = false;
-						if (stop_at_pcm_end)
-							finished = true;
+						end_dac_stream(stream);
+						break;
 					}
 				}
 			}
 
 			// Get sample from sound chips
-			for (auto &device_pair : devices)
-				device_pair.second.get_sample(&output[i], 1);
+			sn76496.get_sample(&output[i], 1);
+			ym2612.get_sample(&output[i], 1);
 
 			if (!driver_ptr->is_playing())
 				finished = true;
@@ -288,6 +289,13 @@ int VgmAudioRenderer::get_sample(WAVE_32BS *output, int count)
 		handle_error(e.what());
 	}
 	return count;
+}
+
+void VgmAudioRenderer::end_dac_stream(DacStream &stream)
+{
+	stream.active = false;
+	if (stop_at_pcm_end)
+		finished = true;
 }
 
 void VgmAudioRenderer::stop_playback()
@@ -333,10 +341,10 @@ void VgmAudioRenderer::write(uint8_t command, uint16_t port, uint16_t reg, uint1
 	switch (command)
 	{
 	case 0x50:
-		devices[DEVID_SN76496].write(reg, data);
+		sn76496.write(port, reg, data);
 		break;
 	case 0x52:
-		devices[DEVID_YM2612].write(port, reg, data);
+		ym2612.write(port, reg, data);
 		if (port == 0 && reg == 0x2b)
 		{
 			const bool enable = (data & 0x80) != 0;
@@ -352,11 +360,12 @@ void VgmAudioRenderer::write(uint8_t command, uint16_t port, uint16_t reg, uint1
 
 void VgmAudioRenderer::dac_setup(uint8_t sid, uint8_t chip_id, uint32_t port, uint32_t reg, uint8_t db_id)
 {
-	streams[sid].chip_id = chip_id;
-	streams[sid].port = port;
-	streams[sid].reg = reg;
-	streams[sid].db_id = db_id;
-	streams[sid].active = false;
+	auto &stream = streams[sid];
+	stream.device = device(chip_id);
+	stream.block = &datablocks[db_id];
+	stream.port = port;
+	stream.reg = reg;
+	stream.active = false;
 }
 
 void VgmAudioRenderer::dac_start(uint8_t sid, uint32_t start, uint32_t length, uint32_t freq)
@@ -379,16 +388,16 @@ void VgmAudioRenderer::poke32(uint32_t offset, uint32_t data)
 	switch (offset)
 	{
 	case 0x0c:
-		devices[DEVID_SN76496].set_default_volume(SoundDevice::kPsgOutputVolume);
-		devices[DEVID_SN76496].set_lowpass(lowpass_enabled, lowpass_cutoff);
-		devices[DEVID_SN76496].init_sn76489(clock);
-		devices[DEVID_SN76496].set_rate(sample_rate);
+		sn76496.set_default_volume(SoundDevice::kPsgOutputVolume);
+		sn76496.set_lowpass(lowpass_enabled, lowpass_cutoff);
+		sn76496.init_sn76489(clock);
+		sn76496.set_rate(sample_rate);
 		break;
 	case 0x2c:
-		devices[DEVID_YM2612].set_ym2612_chip_type(ym2612_chip_type);
-		devices[DEVID_YM2612].set_lowpass(lowpass_enabled, lowpass_cutoff);
-		devices[DEVID_YM2612].init_ym2612(clock);
-		devices[DEVID_YM2612].set_rate(sample_rate);
+		ym2612.set_ym2612_chip_type(ym2612_chip_type);
+		ym2612.set_lowpass(lowpass_enabled, lowpass_cutoff);
+		ym2612.init_ym2612(clock);
+		ym2612.set_rate(sample_rate);
 		break;
 	default:
 		if (log_messages)
