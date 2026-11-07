@@ -231,6 +231,43 @@ namespace
 		return ok;
 	}
 
+	// Peak-to-peak span of the preview's left output over `frames`.
+	int32_t preview_span(PreviewSynth &preview, uint32_t frames)
+	{
+		std::vector<WAVE_32BS> out(frames, WAVE_32BS{0, 0});
+		preview.render(out.data(), static_cast<int>(frames));
+		int32_t low = INT32_MAX;
+		int32_t high = INT32_MIN;
+		for (const auto &sample : out)
+		{
+			low = std::min(low, sample.L);
+			high = std::max(high, sample.L);
+		}
+		return high - low;
+	}
+
+	bool test_preview_psg_envelope_end()
+	{
+		// A loop target past the data, and a sustain marker as the last byte.
+		const std::vector<uint8_t> loop_out = {0x20, 0x02, 0x40};
+		const std::vector<uint8_t> sustain_last = {0x20, 0x01};
+		bool ok = true;
+		for (const auto *env : {&loop_out, &sustain_last})
+		{
+			PreviewSynth preview;
+			preview.init(kSampleRate);
+			preview.load_psg(env->data(), static_cast<int>(env->size()));
+			preview.set_mode(1);
+			preview.note_on(60, 100);
+			ok &= check(preview_span(preview, kSampleRate / 10) > 0, "the PSG preview note should sound");
+			preview.note_off(60);
+			preview_span(preview, kSampleRate / 5);
+			ok &= check(preview_span(preview, kSampleRate / 5) == 0,
+					"a PSG preview note should end where its envelope data ends");
+		}
+		return ok;
+	}
+
 	bool test_preview_psg_volume()
 	{
 		PreviewSynth preview;
@@ -251,5 +288,6 @@ int main()
 	ok &= test_lowpass_response();
 	ok &= test_device_lowpass();
 	ok &= test_preview_psg_volume();
+	ok &= test_preview_psg_envelope_end();
 	return ok ? 0 : 1;
 }
