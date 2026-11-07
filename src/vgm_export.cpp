@@ -1,9 +1,8 @@
 #include "vgm_export.h"
 
-#include <cstdio>
-#include <fstream>
 #include <vector>
 
+#include "binary_file.h"
 #include "input.h"
 #include "mml_compile.h"
 
@@ -17,16 +16,9 @@ namespace
 			// does not catch driver errors. Convert them here before they can cross
 			// the wasm boundary as Emscripten's opaque CppException object.
 			std::vector<uint8_t> data = song->get_platform()->get_export_data(*song, 0);
-			std::ofstream out(out_path, std::ios::binary);
-			if (!out)
-				return {false, "failed to open output file"};
-			out.write(reinterpret_cast<const char *>(data.data()), static_cast<std::streamsize>(data.size()));
-			if (!out)
-			{
-				out.close();
-				std::remove(out_path.c_str());
-				return {false, "failed to write output file"};
-			}
+			std::string error;
+			if (!write_binary_file(out_path, data, error))
+				return {false, error};
 			return {true, {}};
 		}
 		catch (InputError &e)

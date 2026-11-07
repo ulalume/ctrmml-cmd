@@ -320,7 +320,7 @@ void PreviewSynth::psg_write(uint8_t data)
 {
 	if (!sn76496)
 		return;
-	sn76496->write(0, data);
+	sn76496->write(0, 0, data);
 }
 
 void PreviewSynth::load_psg(const uint8_t *data, int len)
@@ -393,125 +393,70 @@ void PreviewSynth::psg_update_envelopes()
 		return;
 
 	for (int ch = 0; ch < 3; ch++)
+		psg_step_envelope(psg_voices[ch], ch);
+	psg_step_envelope(psg_noise_voice, 3);
+}
+
+void PreviewSynth::psg_step_envelope(PsgVoice &v, int ch)
+{
+	if (!v.active && !v.env_keyoff)
+		return;
+
+	const size_t size = psg_envelope.size();
+	if (v.env_pos < 0 || static_cast<size_t>(v.env_pos) >= size)
 	{
-		auto &v = psg_voices[ch];
-		if (!v.active && !v.env_keyoff)
-			continue;
-
-		if (v.env_pos < 0 || static_cast<size_t>(v.env_pos) >= psg_envelope.size())
-		{
-			psg_set_volume(ch, 15); // silent
-			v.active = false;
-			continue;
-		}
-
-		// Match upstream: after key off, PSG envelopes advance every tick.
-		// Otherwise env_delay counts down in 0x10 steps until it reaches < 0x20.
-		if (v.env_delay >= 0x20 && !v.env_keyoff)
-		{
-			v.env_delay -= 0x10;
-			continue;
-		}
-
-		if (v.env_pos < 0 || static_cast<size_t>(v.env_pos) >= psg_envelope.size())
-			continue;
-
-		uint8_t byte = psg_envelope[v.env_pos];
-
-		// Sustain: wait until key off
-		if (byte == 0x01 && v.env_keyoff)
-		{
-			v.env_pos++;
-			v.env_keyoff = false;
-		}
-		// Loop
-		else if (byte == 0x02 && !v.env_keyoff &&
-				 (!v.env_released || ++v.env_loops < PSG_RELEASE_LOOPS))
-		{
-			if (static_cast<size_t>(v.env_pos + 1) < psg_envelope.size())
-				v.env_pos = psg_envelope[v.env_pos + 1];
-		}
-
-		// Re-read byte after possible jump
-		byte = psg_envelope[v.env_pos];
-
-		// Data byte (> 0x0F): set volume + frame duration
-		if (byte > 0x0f)
-		{
-			v.env_delay = byte;
-			uint8_t vol = byte & 0x0f;
-			v.env_vol = vol;
-			psg_set_volume(ch, vol);
-			v.env_pos++;
-		}
-		// End: mute, keyed on or not. A sustain marker holds until key off,
-		// and after the release there is no key off left to wait for.
-		else if (byte != 0x01 || v.env_released)
-		{
-			psg_set_volume(ch, 15);
-			v.active = false;
-			v.env_keyoff = false;
-			v.env_released = false;
-			v.env_loops = 0;
-			v.env_pos = static_cast<int>(psg_envelope.size());
-		}
+		psg_set_volume(ch, 15); // silent
+		v.active = false;
+		return;
 	}
 
-	// Noise voice envelope (ch3) — same logic as tone voices
+	// Match upstream: after key off, PSG envelopes advance every tick.
+	// Otherwise env_delay counts down in 0x10 steps until it reaches < 0x20.
+	if (v.env_delay >= 0x20 && !v.env_keyoff)
 	{
-		auto &v = psg_noise_voice;
-		if (!v.active && !v.env_keyoff)
-			return;
+		v.env_delay -= 0x10;
+		return;
+	}
 
-		if (v.env_pos < 0 || static_cast<size_t>(v.env_pos) >= psg_envelope.size())
-		{
-			psg_set_volume(3, 15);
-			v.active = false;
-			return;
-		}
+	uint8_t byte = psg_envelope[v.env_pos];
 
-		if (v.env_delay >= 0x20 && !v.env_keyoff)
-		{
-			v.env_delay -= 0x10;
-			return;
-		}
+	// Sustain: wait until key off
+	if (byte == 0x01 && v.env_keyoff)
+	{
+		v.env_pos++;
+		v.env_keyoff = false;
+	}
+	// Loop
+	else if (byte == 0x02 && !v.env_keyoff &&
+			 (!v.env_released || ++v.env_loops < PSG_RELEASE_LOOPS))
+	{
+		if (static_cast<size_t>(v.env_pos + 1) < size)
+			v.env_pos = psg_envelope[v.env_pos + 1];
+	}
 
-		if (v.env_pos < 0 || static_cast<size_t>(v.env_pos) >= psg_envelope.size())
-			return;
+	// Re-read byte after possible jump. A position past the data reads as
+	// the end marker.
+	byte = static_cast<size_t>(v.env_pos) < size ? psg_envelope[v.env_pos] : 0x00;
 
-		uint8_t byte = psg_envelope[v.env_pos];
-
-		if (byte == 0x01 && v.env_keyoff)
-		{
-			v.env_pos++;
-			v.env_keyoff = false;
-		}
-		else if (byte == 0x02 && !v.env_keyoff &&
-				 (!v.env_released || ++v.env_loops < PSG_RELEASE_LOOPS))
-		{
-			if (static_cast<size_t>(v.env_pos + 1) < psg_envelope.size())
-				v.env_pos = psg_envelope[v.env_pos + 1];
-		}
-
-		byte = psg_envelope[v.env_pos];
-
-		if (byte > 0x0f)
-		{
-			v.env_delay = byte;
-			uint8_t vol = byte & 0x0f;
-			v.env_vol = vol;
-			psg_set_volume(3, vol);
-			v.env_pos++;
-		}
-		else if (byte != 0x01 || v.env_released)
-		{
-			psg_set_volume(3, 15);
-			v.active = false;
-			v.env_keyoff = false;
-			v.env_released = false;
-			v.env_loops = 0;
-			v.env_pos = static_cast<int>(psg_envelope.size());
-		}
+	// Data byte (> 0x0F): set volume + frame duration
+	if (byte > 0x0f)
+	{
+		v.env_delay = byte;
+		uint8_t vol = byte & 0x0f;
+		v.env_vol = vol;
+		psg_set_volume(ch, vol);
+		v.env_pos++;
+	}
+	// End: mute, keyed on or not. A sustain marker holds until key off,
+	// and after the release there is no key off left to wait for.
+	else if (byte != 0x01 || v.env_released)
+	{
+		psg_set_volume(ch, 15);
+		v.active = false;
+		v.env_keyoff = false;
+		v.env_released = false;
+		v.env_loops = 0;
+		v.env_pos = static_cast<int>(size);
 	}
 }
 

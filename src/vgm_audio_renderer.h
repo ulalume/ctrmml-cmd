@@ -32,7 +32,6 @@ public:
 										uint8_t lfsr_w = 0x10,
 										uint16_t lfsr_t = 0x09);
 	void init_ym2612(uint32_t freq);
-	void write(uint16_t addr, uint16_t data);
 	void write(uint8_t port, uint16_t addr, uint16_t data);
 	void get_sample(WAVE_32BS *output, int count);
 	void set_mute_mask(uint32_t mask);
@@ -47,7 +46,6 @@ private:
 	static void stream_update(void *info, UINT32 samples, DEV_SMPL **outputs);
 
 	RESMPL_STATE resmpl;
-	bool dev_init;
 	bool resmpl_init;
 	enum
 	{
@@ -55,7 +53,6 @@ private:
 		CHIP_SN76496,
 		CHIP_YM2612,
 	} chip_type;
-	uint32_t sample_rate;
 	uint16_t volume;
 	Ym2612ChipType ym2612_chip_type;
 	std::unique_ptr<YmfmYm2612Device> ymfm_ym2612;
@@ -73,14 +70,13 @@ public:
 
 	std::shared_ptr<Driver> &get_driver();
 	void setup_stream(uint32_t sample_rate);
-	uint32_t get_sample_rate() const { return static_cast<uint32_t>(sample_rate); }
-	int get_sample(WAVE_32BS *output, int count);
+	//! Adds `count` rendered samples to `output`.
+	void get_sample(WAVE_32BS *output, int count);
 	void stop_playback();
 	bool is_finished() const;
 	const std::string &last_error() const;
 	void set_mute_mask(int chip_id, uint32_t mask);
 	void set_ym2612_chip_type(Ym2612ChipType chip_type);
-	Ym2612ChipType get_ym2612_chip_type() const;
 	//! Low-pass every chip at its own native rate, before resampling.
 	void set_lowpass(bool enabled, double cutoff_hz);
 	//! Finish playback once PCM output ends: a DAC stream reaches the end of
@@ -112,18 +108,23 @@ private:
 			uint32_t flags = 0,
 			uint32_t offset = 0) override;
 
+	SoundDevice *device(int chip_id);
+
 	struct DacStream
 	{
-		uint8_t chip_id;
+		SoundDevice *device; // null for a chip this renderer does not emulate
+		const std::vector<uint8_t> *block;
 		uint8_t port;
 		uint8_t reg;
-		uint8_t db_id;
 		bool active;
 		uint32_t position;
 		uint32_t length;
 		uint32_t freq;
 		int32_t counter;
 	};
+
+	//! Stops a stream whose length or data block ran out.
+	void end_dac_stream(DacStream &stream);
 
 	int sample_rate;
 	float delta_time;
@@ -137,7 +138,8 @@ private:
 	Ym2612ChipType ym2612_chip_type;
 	std::string last_error_message;
 
-	std::map<int, SoundDevice> devices;
+	SoundDevice sn76496; // VGM chip id 0x00
+	SoundDevice ym2612;  // VGM chip id 0x02
 	std::map<int, std::vector<uint8_t>> datablocks;
 	std::map<int, DacStream> streams;
 

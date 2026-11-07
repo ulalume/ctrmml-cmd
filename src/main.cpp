@@ -119,6 +119,33 @@ namespace
 		return FrameOutcome::Update;
 	}
 
+	// Where MML read from stdin resolves its includes and how messages name
+	// it: the directory and absolute path of `--path` when it is given.
+	struct StdinSource
+	{
+		std::string base_dir;
+		std::string display_name;
+	};
+
+	StdinSource stdin_source(const std::string &display_path)
+	{
+		StdinSource source{std::filesystem::current_path().string(), "<stdin>"};
+		if (!display_path.empty())
+		{
+			std::filesystem::path display_fs = std::filesystem::absolute(display_path);
+			source.base_dir = display_fs.parent_path().string();
+			source.display_name = display_fs.string();
+		}
+		return source;
+	}
+
+	std::string read_stdin()
+	{
+		std::ostringstream buffer;
+		buffer << std::cin.rdbuf();
+		return buffer.str();
+	}
+
 	bool parse_line_col(const std::string &value, uint32_t &line, uint32_t &col)
 	{
 		auto pos = value.find(':');
@@ -208,30 +235,10 @@ namespace
 
 	void emit_playback_error(const std::string &message)
 	{
-		std::cout << R"({"type":"playback_error","message":")";
-		for (unsigned char c : message)
-		{
-			switch (c)
-			{
-			case '"': std::cout << "\\\""; break;
-			case '\\': std::cout << "\\\\"; break;
-			case '\n': std::cout << "\\n"; break;
-			case '\r': std::cout << "\\r"; break;
-			case '\t': std::cout << "\\t"; break;
-			default:
-				if (c < 0x20)
-				{
-					char escaped[7];
-					std::snprintf(escaped, sizeof(escaped), "\\u%04x", c);
-					std::cout << escaped;
-				}
-				else
-				{
-					std::cout << static_cast<char>(c);
-				}
-			}
-		}
-		std::cout << "\"}\n" << std::flush;
+		std::string out = R"({"type":"playback_error","message":)";
+		ctrmml_cmd::append_json_string(out, message);
+		out += "}\n";
+		std::cout << out << std::flush;
 	}
 
 }
@@ -288,24 +295,15 @@ int main(int argc, char **argv)
 		}
 		if (use_stdin)
 		{
-			std::ostringstream buffer;
-			buffer << std::cin.rdbuf();
-			std::string input = buffer.str();
-			std::string base_dir = std::filesystem::current_path().string();
-			std::string display_name = "<stdin>";
-			if (!display_path.empty())
-			{
-				std::filesystem::path display_fs = std::filesystem::absolute(display_path);
-				base_dir = display_fs.parent_path().string();
-				display_name = display_fs.string();
-			}
+			const std::string input = read_stdin();
+			const StdinSource source = stdin_source(display_path);
 			if (json_output)
 			{
-				auto report = ctrmml_cmd::check_text_report(input, base_dir, display_name);
+				auto report = ctrmml_cmd::check_text_report(input, source.base_dir, source.display_name);
 				std::cout << ctrmml_cmd::check_report_json(report) << std::endl;
 				return report.ok() ? 0 : 1;
 			}
-			auto result = ctrmml_cmd::check_text(input, base_dir, display_name);
+			auto result = ctrmml_cmd::check_text(input, source.base_dir, source.display_name);
 			if (!result.ok)
 			{
 				std::cerr << result.error << std::endl;
@@ -369,18 +367,9 @@ int main(int argc, char **argv)
 		CompileResult compile;
 		if (use_stdin)
 		{
-			std::ostringstream buffer;
-			buffer << std::cin.rdbuf();
-			std::string input = buffer.str();
-			std::string base_dir = std::filesystem::current_path().string();
-			std::string display_name = "<stdin>";
-			if (!display_path.empty())
-			{
-				std::filesystem::path display_fs = std::filesystem::absolute(display_path);
-				base_dir = display_fs.parent_path().string();
-				display_name = display_fs.string();
-			}
-			compile = compile_mml_text(input, base_dir, display_name);
+			const std::string input = read_stdin();
+			const StdinSource source = stdin_source(display_path);
+			compile = compile_mml_text(input, source.base_dir, source.display_name);
 		}
 		else
 		{
@@ -389,9 +378,10 @@ int main(int argc, char **argv)
 
 		if (!compile.song || !compile.lines)
 		{
-			std::ostringstream err;
-			err << R"({"error":")" << compile.error << R"("})";
-			std::cout << err.str() << std::endl;
+			std::string err = R"({"error":)";
+			ctrmml_cmd::append_json_string(err, compile.error);
+			err += '}';
+			std::cout << err << std::endl;
 			return 1;
 		}
 
@@ -532,20 +522,11 @@ int main(int argc, char **argv)
 
 		if (use_stdin)
 		{
-			std::ostringstream buffer;
-			buffer << std::cin.rdbuf();
-			std::string input = buffer.str();
-			std::string base_dir = std::filesystem::current_path().string();
-			std::string display_name = "<stdin>";
-			if (!display_path.empty())
-			{
-				std::filesystem::path display_fs = std::filesystem::absolute(display_path);
-				base_dir = display_fs.parent_path().string();
-				display_name = display_fs.string();
-			}
+			const std::string input = read_stdin();
+			const StdinSource source = stdin_source(display_path);
 			auto result = want_wav
-									? export_wav_text(input, base_dir, display_name, out_path, chip_type)
-									: export_vgm_text(input, base_dir, display_name, out_path);
+									? export_wav_text(input, source.base_dir, source.display_name, out_path, chip_type)
+									: export_vgm_text(input, source.base_dir, source.display_name, out_path);
 			if (!result.ok)
 				std::cerr << result.error << std::endl;
 			return result.ok ? 0 : 1;
@@ -604,14 +585,7 @@ int main(int argc, char **argv)
 			return 1;
 		}
 
-		std::string base_dir = std::filesystem::current_path().string();
-		std::string display_name = "<stdin>";
-		if (use_stdin && !display_path.empty())
-		{
-			std::filesystem::path display_fs = std::filesystem::absolute(display_path);
-			base_dir = display_fs.parent_path().string();
-			display_name = display_fs.string();
-		}
+		const StdinSource source = stdin_source(use_stdin ? display_path : std::string());
 
 		CompileResult compile{};
 		if (use_stdin && hot_reload)
@@ -626,13 +600,11 @@ int main(int argc, char **argv)
 				std::cerr << "ctrmml-cmd play: hot-reload expected initial UPDATE frame\n";
 				return 1;
 			}
-			compile = compile_mml_text(initial, base_dir, display_name);
+			compile = compile_mml_text(initial, source.base_dir, source.display_name);
 		}
 		else if (use_stdin)
 		{
-			std::ostringstream buffer;
-			buffer << std::cin.rdbuf();
-			compile = compile_mml_text(buffer.str(), base_dir, display_name);
+			compile = compile_mml_text(read_stdin(), source.base_dir, source.display_name);
 		}
 		else
 		{
@@ -651,7 +623,8 @@ int main(int argc, char **argv)
 				--start_line;
 			if (start_col > 0)
 				--start_col;
-			start_ticks = find_start_ticks(*compile.song, *compile.lines, start_line, start_col);
+			start_ticks = static_cast<uint32_t>(
+					find_cursor_tick(*compile.song, *compile.lines, start_line, start_col));
 		}
 
 		VgmAudioRenderer renderer(compile.song, start_ticks);
@@ -675,10 +648,9 @@ int main(int argc, char **argv)
 		// Hot-reload: spin a background reader that pulls subsequent
 		// UPDATE frames off stdin and hands them to the render loop via a
 		// mutex-guarded queue. The reader exits on EOF / END / parse
-		// error, after which `pending_done` flips and we stop trying.
+		// error.
 		std::mutex pending_mu;
 		std::optional<std::string> pending_mml;
-		std::atomic<bool> pending_done{false};
 		std::thread reader;
 		if (hot_reload)
 		{
@@ -694,7 +666,6 @@ int main(int argc, char **argv)
 						pending_mml = body;
 					}
 				}
-				pending_done.store(true);
 			});
 		}
 
@@ -711,7 +682,7 @@ int main(int argc, char **argv)
 				}
 				if (next.has_value())
 				{
-					CompileResult fresh = compile_mml_text(*next, base_dir, display_name);
+					CompileResult fresh = compile_mml_text(*next, source.base_dir, source.display_name);
 					if (fresh.song)
 					{
 						auto driver = renderer.get_driver();

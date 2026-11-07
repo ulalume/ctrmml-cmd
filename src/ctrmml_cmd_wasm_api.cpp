@@ -24,8 +24,6 @@
 
 namespace
 {
-	const float kInvSampleScale = 1.0f / 8388608.0f;
-	constexpr int kMaxChannels = 16;
 	DcBlocker g_dc_blocker;
 	bool g_lowpass_enabled = true;
 	double g_lowpass_cutoff = LowPassFilter::kDefaultCutoffHz;
@@ -34,6 +32,7 @@ namespace
 	CompileResult g_compile;
 	std::unique_ptr<VgmAudioRenderer> g_renderer;
 	std::unique_ptr<MDSDRV_Data> g_instrument_data;
+	bool g_instrument_data_stale = false;
 	std::unique_ptr<PreviewSynth> g_preview;
 
 	std::string g_last_error;
@@ -72,22 +71,29 @@ namespace
 		}
 	}
 
-	void rebuild_instrument_data()
+	/** Instrument tables of g_compile.song for the JSON queries, read on the
+	 *  first query after g_compile changes. Null if there is no song or it
+	 *  cannot be read. */
+	const MDSDRV_Data *instrument_data()
 	{
-		if (!g_compile.song)
+		if (g_instrument_data_stale)
 		{
+			g_instrument_data_stale = false;
 			g_instrument_data.reset();
-			return;
+			if (g_compile.song)
+			{
+				try
+				{
+					auto data = std::make_unique<MDSDRV_Data>();
+					data->read_song(*g_compile.song);
+					g_instrument_data = std::move(data);
+				}
+				catch (std::exception &)
+				{
+				}
+			}
 		}
-		try
-		{
-			g_instrument_data = std::make_unique<MDSDRV_Data>();
-			g_instrument_data->read_song(*g_compile.song);
-		}
-		catch (std::exception &)
-		{
-			g_instrument_data.reset();
-		}
+		return g_instrument_data.get();
 	}
 
 	/** Populate MdslinkOptions.inputs from a char** array. Returns false on null entry. */
@@ -103,24 +109,6 @@ namespace
 			opts.inputs.push_back(input_paths[i]);
 		}
 		return true;
-	}
-
-	void json_escape(std::ostringstream &os, const char *s)
-	{
-		os << '"';
-		for (; *s; ++s)
-		{
-			switch (*s)
-			{
-			case '"': os << "\\\""; break;
-			case '\\': os << "\\\\"; break;
-			case '\n': os << "\\n"; break;
-			case '\r': os << "\\r"; break;
-			case '\t': os << "\\t"; break;
-			default: os << *s;
-			}
-		}
-		os << '"';
 	}
 }
 
@@ -139,14 +127,12 @@ extern "C" int ctrmml_cmd_wasm_compile(const char *text, const char *base_dir)
 	}
 
 	g_compile = compile_mml_text(text, base_dir, "input.mml");
+	g_instrument_data_stale = true;
 	if (!g_compile.song)
 	{
 		set_error(g_compile.error);
-		g_instrument_data.reset();
 		return 1;
 	}
-
-	rebuild_instrument_data();
 	return 0;
 }
 
@@ -166,7 +152,7 @@ extern "C" const char *ctrmml_cmd_wasm_check_json(const char *text,
 
 	auto report = ctrmml_cmd::check_text_report(text, base_dir, "input.mml", &g_compile);
 	g_check_json_result = ctrmml_cmd::check_report_json(report);
-	rebuild_instrument_data();
+	g_instrument_data_stale = true;
 
 	return g_check_json_result.c_str();
 }
@@ -182,7 +168,7 @@ extern "C" int ctrmml_cmd_wasm_start_playback(uint32_t sample_rate,
 	g_renderer.reset();
 	g_last_error.clear();
 
-	if (!g_compile.song || !g_compile.tracks || !g_compile.lines)
+	if (!g_compile.song || !g_compile.lines)
 	{
 		set_error("no compiled song");
 		return 1;
@@ -192,7 +178,8 @@ extern "C" int ctrmml_cmd_wasm_start_playback(uint32_t sample_rate,
 	try
 	{
 		if (start_line > 0 || start_col > 0)
-			start_ticks = find_start_ticks(*g_compile.song, *g_compile.lines, start_line, start_col);
+			start_ticks = static_cast<uint32_t>(
+					find_cursor_tick(*g_compile.song, *g_compile.lines, start_line, start_col));
 	}
 	catch (std::exception &e)
 	{
@@ -208,7 +195,7 @@ extern "C" int ctrmml_cmd_wasm_start_playback_at_tick(uint32_t sample_rate, uint
 	g_renderer.reset();
 	g_last_error.clear();
 
-	if (!g_compile.song || !g_compile.tracks || !g_compile.lines)
+	if (!g_compile.song)
 	{
 		set_error("no compiled song");
 		return 1;
@@ -249,7 +236,7 @@ extern "C" int ctrmml_cmd_wasm_compile_and_relink(const char *text, const char *
 	}
 
 	g_compile = std::move(new_compile);
-	rebuild_instrument_data();
+	g_instrument_data_stale = true;
 
 	if (had_renderer)
 	{
@@ -293,8 +280,6 @@ extern "C" void ctrmml_cmd_wasm_set_stop_at_pcm_end(int enabled)
 
 extern "C" void ctrmml_cmd_wasm_stop_playback()
 {
-	if (g_renderer)
-		g_renderer->stop_playback();
 	g_renderer.reset();
 }
 
@@ -320,41 +305,21 @@ extern "C" int ctrmml_cmd_wasm_render_audio(float *output, int frames)
 	if (static_cast<int>(scratch.size()) < frames)
 		scratch.resize(frames);
 	std::memset(scratch.data(), 0, frames * sizeof(WAVE_32BS));
-	int written = 0;
 
 	if (has_main)
 	{
-		written = g_renderer->get_sample(scratch.data(), frames);
-		if (written < 0)
-			written = 0;
+		g_renderer->get_sample(scratch.data(), frames);
 		if (g_renderer->is_finished() && !g_renderer->last_error().empty())
 			set_error(g_renderer->last_error());
 	}
 
 	if (has_preview)
-	{
-		if (written == 0)
-		{
-			std::memset(scratch.data(), 0, frames * sizeof(WAVE_32BS));
-			written = frames;
-		}
-		g_preview->render(scratch.data(), written);
-	}
+		g_preview->render(scratch.data(), frames);
 
-	for (int i = 0; i < written; ++i)
-	{
-		float l = scratch[i].L * kInvSampleScale;
-		float r = scratch[i].R * kInvSampleScale;
-		g_dc_blocker.process(l, r);
-		if (l > 1.0f) l = 1.0f;
-		if (l < -1.0f) l = -1.0f;
-		if (r > 1.0f) r = 1.0f;
-		if (r < -1.0f) r = -1.0f;
-		output[i * 2 + 0] = l;
-		output[i * 2 + 1] = r;
-	}
+	for (int i = 0; i < frames; ++i)
+		g_dc_blocker.to_output(scratch[i].L, scratch[i].R, output[i * 2 + 0], output[i * 2 + 1]);
 
-	return written;
+	return frames;
 }
 
 // ---------------------------------------------------------------------------
@@ -598,51 +563,80 @@ namespace
 	// Register offsets:  +0=OP1, +4=OP3, +8=OP2, +C=OP4
 	int fm_reg_to_data_index(uint8_t reg)
 	{
-		// Map register low nibble to data_bank slot within a group
-		// 0x*0→0(OP1), 0x*4→1(OP3), 0x*8→2(OP2), 0x*C→3(OP4)
-		static const std::map<uint8_t, int> reg_to_slot = {
-			{0x00, 0}, {0x04, 1}, {0x08, 2}, {0x0c, 3}
-		};
-
-		auto slot_it = reg_to_slot.find(reg & 0x0c);
-
-		// DT/MUL: 0x30..0x3C → data[0..3]
-		if (reg >= 0x30 && reg <= 0x3c && slot_it != reg_to_slot.end())
-			return 0 + slot_it->second;
-		// KS/AR: 0x50..0x5C → data[4..7]
-		if (reg >= 0x50 && reg <= 0x5c && slot_it != reg_to_slot.end())
-			return 4 + slot_it->second;
-		// AM/DR: 0x60..0x6C → data[8..11]
-		if (reg >= 0x60 && reg <= 0x6c && slot_it != reg_to_slot.end())
-			return 8 + slot_it->second;
-		// SR: 0x70..0x7C → data[12..15]
-		if (reg >= 0x70 && reg <= 0x7c && slot_it != reg_to_slot.end())
-			return 12 + slot_it->second;
-		// SL/RR: 0x80..0x8C → data[16..19]
-		if (reg >= 0x80 && reg <= 0x8c && slot_it != reg_to_slot.end())
-			return 16 + slot_it->second;
-		// SSG-EG: 0x90..0x9C → data[20..23]
-		if (reg >= 0x90 && reg <= 0x9c && slot_it != reg_to_slot.end())
-			return 20 + slot_it->second;
-
-		// TL uses special MDSDRV addresses: 0xfc=OP1, 0xfd=OP3, 0xfe=OP2, 0xff=OP4
-		// → data[24..27] in same physical order
-		static const std::map<uint8_t, int> tl_map = {
-			{0xfc, 24}, {0xfd, 25}, {0xfe, 26}, {0xff, 27}
-		};
-		auto tl_it = tl_map.find(reg);
-		if (tl_it != tl_map.end()) return tl_it->second;
-
+		// TL uses special MDSDRV addresses: 0xfc=OP1, 0xfd=OP3, 0xfe=OP2,
+		// 0xff=OP4 → data[24..27] in the same physical order
+		if (reg >= 0xfc)
+			return 24 + (reg - 0xfc);
 		// FB/ALG: 0xB0 → data[28]
-		if (reg == 0xb0) return 28;
+		if (reg == 0xb0)
+			return 28;
+		// DT/MUL 0x30..0x3C → data[0..3], then KS/AR 0x50, AM/DR 0x60,
+		// SR 0x70, SL/RR 0x80 and SSG-EG 0x90 → data[4..23]
+		const int row = reg >> 4;
+		if ((row != 0x3 && (row < 0x5 || row > 0x9)) || (reg & 0x0f) > 0x0c)
+			return -1;
+		return (row == 0x3 ? 0 : (row - 0x4) * 4) + ((reg >> 2) & 3);
+	}
 
-		return -1;
+	const char *instrument_type_name(MDSDRV_Data::InstrumentType type)
+	{
+		switch (type)
+		{
+		case MDSDRV_Data::INS_FM:  return "fm";
+		case MDSDRV_Data::INS_PSG: return "psg";
+		case MDSDRV_Data::INS_PCM: return "pcm";
+		default: return "unknown";
+		}
+	}
+
+	// Writes `,"data":[...]`.
+	void write_data_array(std::ostringstream &os, const std::vector<uint8_t> &data)
+	{
+		os << ",\"data\":[";
+		for (size_t i = 0; i < data.size(); ++i)
+		{
+			if (i > 0) os << ',';
+			os << static_cast<int>(data[i]);
+		}
+		os << ']';
+	}
+
+	struct TrackEventRange
+	{
+		unsigned long before_line;  // events added by the lines before the cursor line
+		unsigned long through_line; // the same plus those added by the cursor line
+	};
+
+	// CompileLineMap holds each track's event count after a line was read, for
+	// the lines that added to that track.
+	TrackEventRange track_events_around_line(const CompileLineMap &lines, int line, uint16_t track_id)
+	{
+		TrackEventRange range{0, 0};
+		auto line_it = lines.lower_bound(line);
+		for (auto prev = std::make_reverse_iterator(line_it); prev != lines.rend(); ++prev)
+		{
+			auto track_it = prev->second.find(track_id);
+			if (track_it != prev->second.end())
+			{
+				range.before_line = track_it->second;
+				break;
+			}
+		}
+		range.through_line = range.before_line;
+		if (line_it != lines.end() && line_it->first == line)
+		{
+			auto track_it = line_it->second.find(track_id);
+			if (track_it != line_it->second.end())
+				range.through_line = track_it->second;
+		}
+		return range;
 	}
 }
 
 extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, uint32_t col)
 {
-	if (!g_compile.song || !g_compile.lines || !g_compile.tracks || !g_instrument_data)
+	const MDSDRV_Data *ins_data = instrument_data();
+	if (!g_compile.song || !g_compile.lines || !ins_data)
 	{
 		g_channel_json = "null";
 		return g_channel_json.c_str();
@@ -667,7 +661,7 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 	int best_event_col = -1;
 	for (const auto &[track_id, end_pos] : line_map)
 	{
-		if (track_id >= kMaxChannels)
+		if (track_id >= kChannelTrackCount)
 			continue;
 		try
 		{
@@ -701,7 +695,7 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 	{
 		for (const auto &[track_id, end_pos] : line_map)
 		{
-			if (track_id >= kMaxChannels)
+			if (track_id >= kChannelTrackCount)
 				continue;
 			best_track_id = track_id;
 			break;
@@ -714,48 +708,21 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 		return g_channel_json.c_str();
 	}
 
-	// Determine the event scan boundary from CompileLineMap.
-	// line_map[track_id] = event count at the START of parsing that line,
-	// i.e. events with index < this value were added by earlier lines.
-	// Use the cursor line's own entry as the boundary so that events
-	// added ON the cursor line are excluded (they come after the cursor).
-	unsigned long scan_limit = 0;
-	{
-		auto bound_it = g_compile.lines->lower_bound(static_cast<int>(line));
-		bool found = false;
-		while (bound_it != g_compile.lines->end())
-		{
-			auto tk = bound_it->second.find(static_cast<uint16_t>(best_track_id));
-			if (tk != bound_it->second.end())
-			{
-				scan_limit = tk->second;
-				found = true;
-				break;
-			}
-			++bound_it;
-		}
-		if (!found)
-		{
-			// No later line; scan all events in the track
-			try
-			{
-				scan_limit = g_compile.song->get_track(best_track_id).get_event_count();
-			}
-			catch (std::exception &)
-			{
-				scan_limit = 0;
-			}
-		}
-	}
+	const auto range = track_events_around_line(*g_compile.lines, static_cast<int>(line),
+			static_cast<uint16_t>(best_track_id));
+	auto is_before_cursor = [&](const Event &event) {
+		const auto &ref = event.reference;
+		return ref && (ref->get_line() < static_cast<int>(line) ||
+				(ref->get_line() == static_cast<int>(line) && ref->get_column() < static_cast<int>(col)));
+	};
 
 	// Scan raw Track events to find:
-	// - active instrument (last Event::INS)
-	// - FM register overrides (Event::PLATFORM) — only BEFORE cursor line
-	// - fm3 flags — only BEFORE cursor line
-	// - last note (Event::NOTE) — including cursor line, up to cursor column
-	const auto &ins_type_map = g_instrument_data->get_ins_type_map();
-	const auto &env_map = g_instrument_data->get_envelope_map_view();
-	const auto &data_bank = g_instrument_data->get_data_bank();
+	// - active instrument (last Event::INS) and last note (Event::NOTE), from
+	//   earlier lines and from the cursor line before the cursor column
+	// - FM register overrides (Event::PLATFORM) and fm3 flags, likewise
+	const auto &ins_type_map = ins_data->get_ins_type_map();
+	const auto &env_map = ins_data->get_envelope_map_view();
+	const auto &data_bank = ins_data->get_data_bank();
 
 	uint16_t ins_id = 0;
 	int fm3_flags = -1;
@@ -765,66 +732,30 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 	struct FmOverride { uint8_t reg; int value; bool relative; };
 	std::vector<FmOverride> pending_overrides;
 
-	// Determine extended scan limit (includes cursor line) for NOTE/INS
-	unsigned long extended_limit = 0;
-	{
-		auto upper_it = g_compile.lines->upper_bound(static_cast<int>(line));
-		bool found = false;
-		while (upper_it != g_compile.lines->end())
-		{
-			auto tk = upper_it->second.find(static_cast<uint16_t>(best_track_id));
-			if (tk != upper_it->second.end())
-			{
-				extended_limit = tk->second;
-				found = true;
-				break;
-			}
-			++upper_it;
-		}
-		if (!found)
-		{
-			try { extended_limit = g_compile.song->get_track(best_track_id).get_event_count(); }
-			catch (std::exception &) { extended_limit = 0; }
-		}
-	}
-
 	try
 	{
 		Track &track = g_compile.song->get_track(best_track_id);
 
-		for (unsigned long i = 0; i < extended_limit; ++i)
+		for (unsigned long i = 0; i < range.through_line; ++i)
 		{
 			Event &event = track.get_event(i);
-			bool before_cursor_line = (i < scan_limit);
+			bool before_cursor_line = (i < range.before_line);
 
 			if (event.type == Event::NOTE)
 			{
-				// Accept notes from cursor line only if their source is before cursor col
-				if (before_cursor_line)
-				{
+				if (before_cursor_line || is_before_cursor(event))
 					last_note = event.param;
-				}
-				else
-				{
-					auto ref = event.reference;
-					if (ref && (ref->get_line() < static_cast<int>(line) ||
-								(ref->get_line() == static_cast<int>(line) &&
-								 ref->get_column() < static_cast<int>(col))))
-					{
-						last_note = event.param;
-					}
-				}
 			}
 			else if (event.type == Event::INS)
 			{
-				ins_id = static_cast<uint16_t>(event.param);
-				if (before_cursor_line)
+				if (before_cursor_line || is_before_cursor(event))
 				{
+					ins_id = static_cast<uint16_t>(event.param);
 					pending_overrides.clear();
 					fm3_flags = -1;
 				}
 			}
-			else if (event.type == Event::PLATFORM && before_cursor_line)
+			else if (event.type == Event::PLATFORM && (before_cursor_line || is_before_cursor(event)))
 			{
 				try
 				{
@@ -867,15 +798,6 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 		return g_channel_json.c_str();
 	}
 
-	const char *type_str = "unknown";
-	switch (type_it->second)
-	{
-	case MDSDRV_Data::INS_FM:  type_str = "fm";  break;
-	case MDSDRV_Data::INS_PSG: type_str = "psg"; break;
-	case MDSDRV_Data::INS_PCM: type_str = "pcm"; break;
-	default: break;
-	}
-
 	// Copy base instrument data and apply overrides
 	auto env_it = env_map.find(ins_id);
 	if (env_it != env_map.end() &&
@@ -908,18 +830,10 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 	std::ostringstream os;
 	os << "{\"track_id\":" << best_track_id
 	   << ",\"instrument_id\":" << ins_id
-	   << ",\"instrument_type\":\"" << type_str << "\"";
+	   << ",\"instrument_type\":\"" << instrument_type_name(type_it->second) << "\"";
 
 	if (!effective_data.empty())
-	{
-		os << ",\"data\":[";
-		for (size_t i = 0; i < effective_data.size(); ++i)
-		{
-			if (i > 0) os << ',';
-			os << static_cast<int>(effective_data[i]);
-		}
-		os << ']';
-	}
+		write_data_array(os, effective_data);
 
 	if (fm3_flags >= 0)
 		os << ",\"fm3_flags\":" << fm3_flags;
@@ -941,13 +855,14 @@ namespace { std::string g_ins_json; }
 
 extern "C" const char *ctrmml_cmd_wasm_get_instrument_data_json(uint16_t ins_id)
 {
-	if (!g_instrument_data)
+	const MDSDRV_Data *ins_data = instrument_data();
+	if (!ins_data)
 	{
 		g_ins_json = "null";
 		return g_ins_json.c_str();
 	}
 
-	const auto &type_map = g_instrument_data->get_ins_type_map();
+	const auto &type_map = ins_data->get_ins_type_map();
 	auto type_it = type_map.find(ins_id);
 	if (type_it == type_map.end())
 	{
@@ -955,34 +870,16 @@ extern "C" const char *ctrmml_cmd_wasm_get_instrument_data_json(uint16_t ins_id)
 		return g_ins_json.c_str();
 	}
 
-	const char *type_str = "unknown";
-	switch (type_it->second)
-	{
-	case MDSDRV_Data::INS_FM:  type_str = "fm";  break;
-	case MDSDRV_Data::INS_PSG: type_str = "psg"; break;
-	case MDSDRV_Data::INS_PCM: type_str = "pcm"; break;
-	default: break;
-	}
-
-	const auto &env_map = g_instrument_data->get_envelope_map_view();
-	const auto &data_bank = g_instrument_data->get_data_bank();
+	const auto &env_map = ins_data->get_envelope_map_view();
+	const auto &data_bank = ins_data->get_data_bank();
 	auto env_it = env_map.find(ins_id);
 
 	std::ostringstream os;
-	os << "{\"instrument_type\":\"" << type_str << "\"";
+	os << "{\"instrument_type\":\"" << instrument_type_name(type_it->second) << "\"";
 
 	if (env_it != env_map.end() && env_it->second >= 0 &&
 		static_cast<size_t>(env_it->second) < data_bank.size())
-	{
-		const auto &data = data_bank[env_it->second];
-		os << ",\"data\":[";
-		for (size_t i = 0; i < data.size(); ++i)
-		{
-			if (i > 0) os << ',';
-			os << static_cast<int>(data[i]);
-		}
-		os << ']';
-	}
+		write_data_array(os, data_bank[env_it->second]);
 
 	os << '}';
 	g_ins_json = os.str();

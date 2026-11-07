@@ -125,6 +125,8 @@ private:
 	};
 	PsgVoice psg_voices[3];
 	PsgVoice psg_noise_voice; // ch3 (noise channel)
+	//! Advance one voice's envelope by one tick; `ch` is its PSG channel.
+	void psg_step_envelope(PsgVoice &v, int ch);
 	std::vector<uint8_t> psg_envelope;
 	bool psg_envelope_loaded;
 

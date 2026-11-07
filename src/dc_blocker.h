@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 struct DcBlocker
 {
 	void reset()
@@ -23,6 +25,24 @@ struct DcBlocker
 		y_right = next_right;
 		left = next_left;
 		right = next_right;
+	}
+
+	//! Scales a mixed chip sample by 1/2^23 and `gain`, removes DC and clamps
+	//! the result to [-1, 1].
+	void to_output(int32_t in_left, int32_t in_right, float &left, float &right, float gain = 1.0f)
+	{
+		constexpr float scale = 1.0f / 8388608.0f;
+		left = in_left * scale * gain;
+		right = in_right * scale * gain;
+		process(left, right);
+		if (left > 1.0f)
+			left = 1.0f;
+		if (left < -1.0f)
+			left = -1.0f;
+		if (right > 1.0f)
+			right = 1.0f;
+		if (right < -1.0f)
+			right = -1.0f;
 	}
 
 	float x_left = 0.0f;

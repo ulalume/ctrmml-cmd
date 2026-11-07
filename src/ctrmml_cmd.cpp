@@ -363,45 +363,6 @@ namespace
 		return report;
 	}
 
-	void append_json_string(std::string &out, const std::string &value)
-	{
-		out.push_back('"');
-		for (unsigned char c : value)
-		{
-			switch (c)
-			{
-			case '\\':
-				out += "\\\\";
-				break;
-			case '"':
-				out += "\\\"";
-				break;
-			case '\n':
-				out += "\\n";
-				break;
-			case '\r':
-				out += "\\r";
-				break;
-			case '\t':
-				out += "\\t";
-				break;
-			default:
-				if (c < 0x20)
-				{
-					char buf[7];
-					std::snprintf(buf, sizeof(buf), "\\u%04x", c);
-					out += buf;
-				}
-				else
-				{
-					out.push_back(static_cast<char>(c));
-				}
-				break;
-			}
-		}
-		out.push_back('"');
-	}
-
 	void append_json_messages(std::string &out, const std::vector<ctrmml_cmd::CheckMessage> &messages)
 	{
 		out.push_back('[');
@@ -411,9 +372,9 @@ namespace
 				out.push_back(',');
 			out.push_back('{');
 			out += "\"message\":";
-			append_json_string(out, messages[i].message);
+			ctrmml_cmd::append_json_string(out, messages[i].message);
 			out += ",\"path\":";
-			append_json_string(out, messages[i].path);
+			ctrmml_cmd::append_json_string(out, messages[i].path);
 			out += ",\"line\":";
 			out += std::to_string(messages[i].line);
 			out += ",\"col\":";
@@ -421,7 +382,7 @@ namespace
 			out += ",\"length\":";
 			out += std::to_string(messages[i].length);
 			out += ",\"code\":";
-			append_json_string(out, messages[i].code);
+			ctrmml_cmd::append_json_string(out, messages[i].code);
 			out.push_back('}');
 		}
 		out.push_back(']');
@@ -476,6 +437,45 @@ namespace ctrmml_cmd
 		append_json_messages(out, report.warnings);
 		out += '}';
 		return out;
+	}
+
+	void append_json_string(std::string &out, const std::string &value)
+	{
+		out.push_back('"');
+		for (unsigned char c : value)
+		{
+			switch (c)
+			{
+			case '\\':
+				out += "\\\\";
+				break;
+			case '"':
+				out += "\\\"";
+				break;
+			case '\n':
+				out += "\\n";
+				break;
+			case '\r':
+				out += "\\r";
+				break;
+			case '\t':
+				out += "\\t";
+				break;
+			default:
+				if (c < 0x20)
+				{
+					char buf[7];
+					std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+					out += buf;
+				}
+				else
+				{
+					out.push_back(static_cast<char>(c));
+				}
+				break;
+			}
+		}
+		out.push_back('"');
 	}
 
 	CheckResult check_file(const std::string &path)

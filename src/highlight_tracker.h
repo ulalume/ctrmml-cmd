@@ -9,6 +9,10 @@
 #include "track.h"
 #include "song.h"
 
+//! Track IDs below this are MDSDRV channels (6 FM, 4 PSG and 6 more);
+//! higher IDs are subroutines and macros with their own timelines.
+constexpr int kChannelTrackCount = 16;
+
 using LineTrackPositionMap = std::map<uint16_t, unsigned long>;
 using CompileLineMap = std::map<int, LineTrackPositionMap>;
 
@@ -61,18 +65,6 @@ std::vector<HighlightPosition> collect_highlights(
 		uint32_t max_entries);
 
 int32_t find_cursor_tick(
-		const Song &song,
-		const CompileLineMap &lines,
-		uint32_t line,
-		uint32_t col);
-
-uint32_t find_line_tick(
-		const Song &song,
-		const CompileLineMap &lines,
-		uint32_t line,
-		uint32_t col);
-
-uint32_t find_start_ticks(
 		const Song &song,
 		const CompileLineMap &lines,
 		uint32_t line,

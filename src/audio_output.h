@@ -16,7 +16,6 @@ public:
 
 	bool start(VgmAudioRenderer *renderer, uint32_t sample_rate);
 	void stop();
-	bool is_running() const;
 
 private:
 	static void data_callback(ma_device *device, void *output, const void *input, uint32_t frame_count);

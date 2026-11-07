@@ -134,8 +134,6 @@ std::vector<HighlightPosition> collect_highlights(
 
 namespace
 {
-	constexpr int kMaxChannels = 16;
-
 	struct EditorTickInfo
 	{
 		uint32_t line_tick = 0;
@@ -248,7 +246,7 @@ namespace
 		const auto &line_map = line_it->second;
 		for (const auto &track_pos : line_map)
 		{
-			if (track_pos.first >= kMaxChannels)
+			if (track_pos.first >= kChannelTrackCount)
 				continue;
 
 			try
@@ -353,22 +351,4 @@ int32_t find_cursor_tick(
 {
 	return static_cast<int32_t>(
 			find_editor_ticks(const_cast<Song &>(song), lines, line, col).cursor_tick);
-}
-
-uint32_t find_line_tick(
-		const Song &song,
-		const CompileLineMap &lines,
-		uint32_t line,
-		uint32_t col)
-{
-	return find_editor_ticks(const_cast<Song &>(song), lines, line, col).line_tick;
-}
-
-uint32_t find_start_ticks(
-		const Song &song,
-		const CompileLineMap &lines,
-		uint32_t line,
-		uint32_t col)
-{
-	return find_editor_ticks(const_cast<Song &>(song), lines, line, col).cursor_tick;
 }

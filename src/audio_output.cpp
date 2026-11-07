@@ -5,11 +5,6 @@
 
 #include <miniaudio.h>
 
-namespace
-{
-	const float kInvSampleScale = 1.0f / 8388608.0f;
-}
-
 AudioOutput::AudioOutput()
 		: device(nullptr), renderer(nullptr), running(false)
 {
@@ -70,11 +65,6 @@ void AudioOutput::stop()
 	running = false;
 }
 
-bool AudioOutput::is_running() const
-{
-	return running;
-}
-
 void AudioOutput::data_callback(ma_device *dev, void *output, const void *input, uint32_t frame_count)
 {
 	(void)input;
@@ -98,28 +88,14 @@ void AudioOutput::fill(int16_t *output, uint32_t frames)
 	if (scratch.size() < frames)
 		scratch.resize(frames);
 	std::memset(scratch.data(), 0, frames * sizeof(WAVE_32BS));
-	int written = renderer->get_sample(scratch.data(), static_cast<int>(frames));
-	if (written < 0)
-		written = 0;
+	renderer->get_sample(scratch.data(), static_cast<int>(frames));
 
-	for (int i = 0; i < written; ++i)
+	for (uint32_t i = 0; i < frames; ++i)
 	{
-		float l = scratch[i].L * kInvSampleScale;
-		float r = scratch[i].R * kInvSampleScale;
-		dc_blocker.process(l, r);
-		if (l > 1.0f)
-			l = 1.0f;
-		if (l < -1.0f)
-			l = -1.0f;
-		if (r > 1.0f)
-			r = 1.0f;
-		if (r < -1.0f)
-			r = -1.0f;
+		float l, r;
+		dc_blocker.to_output(scratch[i].L, scratch[i].R, l, r);
 		output[i * 2 + 0] = static_cast<int16_t>(l * 32767.0f);
 		output[i * 2 + 1] = static_cast<int16_t>(r * 32767.0f);
 	}
 
-	// Zero remaining frames if renderer produced fewer
-	if (static_cast<uint32_t>(written) < frames)
-		std::memset(&output[written * 2], 0, (frames - written) * 2 * sizeof(int16_t));
 }

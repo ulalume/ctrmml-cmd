@@ -13,7 +13,6 @@ public:
 	~MameSn76496Device();
 
 	uint32_t sample_rate() const;
-	void reset();
 	void write(uint8_t data);
 	void render(DEV_SMPL **outputs, uint32_t samples);
 	void set_mute_mask(uint32_t mask);
