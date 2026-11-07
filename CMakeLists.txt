@@ -213,6 +213,19 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
     ${CTRMML_PLAYER_LINK_OPTIONS}
     "SHELL:-sINITIAL_MEMORY=33554432")
 
+  # The player with room to spare and an export of its heap's high-water
+  # mark, for tests/player/parity.mjs to measure the memory it needs.
+  add_executable(ctrmml-player-heap-probe EXCLUDE_FROM_ALL
+    src/ctrmml_player.cpp
+    tests/player/heap_probe.cpp)
+  target_link_libraries(ctrmml-player-heap-probe PRIVATE ctrmml-cmd-playback)
+  set_target_properties(ctrmml-player-heap-probe PROPERTIES
+    OUTPUT_NAME "ctrmml_player_heap_probe"
+    SUFFIX ".wasm")
+  target_link_options(ctrmml-player-heap-probe PRIVATE
+    ${CTRMML_PLAYER_LINK_OPTIONS}
+    "SHELL:-sINITIAL_MEMORY=268435456")
+
 else()
   # ---------- Native build ----------
   add_library(ctrmml-cmd-lib STATIC
