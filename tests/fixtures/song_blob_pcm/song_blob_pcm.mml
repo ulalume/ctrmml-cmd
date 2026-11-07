@@ -1,0 +1,13 @@
+#platform megadrive
+
+@1 fm 3 0
+ 31 0 19 5 0 23 0 0 0 0
+ 31 6 0 4 3 19 0 0 0 0
+ 31 15 0 5 4 38 0 4 0 0
+ 31 27 0 11 1 0 0 1 0 0
+
+@30 pcm "kick.wav"
+@31 pcm "kick.wav" rate=12000
+
+A t140 @1 v11 o3 l8 [c >c< g c]4
+F l8 [@30 c c @31 c r]4
