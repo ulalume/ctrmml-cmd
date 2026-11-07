@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "binary_file.h"
 #include "input.h"
 #include "mml_compile.h"
 #include "platform/mdsdrv.h"
@@ -59,15 +60,6 @@ namespace
 		out = converter.get_mds();
 		return {true, ""};
 	}
-
-	MdslinkResult write_binary_file(const std::string& path, const std::vector<uint8_t>& bytes)
-	{
-		std::ofstream out(path, std::ios::binary);
-		if (!out)
-			return {false, stringf("Couldn't write %s", path.c_str())};
-		out.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
-		return {true, ""};
-	}
 }
 
 MdslinkResult write_mdslink_outputs(const MdslinkOptions& options, const MdslinkPayload& payload)
@@ -75,16 +67,16 @@ MdslinkResult write_mdslink_outputs(const MdslinkOptions& options, const Mdslink
 	if (!options.seq_output.empty())
 	{
 		std::cout << "writing " << options.seq_output << " ...\n";
-		auto result = write_binary_file(options.seq_output, payload.seq_data);
-		if (!result.ok)
-			return result;
+		std::string error;
+		if (!write_binary_file(options.seq_output, payload.seq_data, error))
+			return {false, error};
 	}
 	if (!options.pcm_output.empty())
 	{
 		std::cout << "writing " << options.pcm_output << " ...\n";
-		auto result = write_binary_file(options.pcm_output, payload.pcm_data);
-		if (!result.ok)
-			return result;
+		std::string error;
+		if (!write_binary_file(options.pcm_output, payload.pcm_data, error))
+			return {false, error};
 		std::cout << payload.statistics;
 	}
 	if (!options.asm_header_output.empty())

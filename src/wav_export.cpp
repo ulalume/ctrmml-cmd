@@ -1,9 +1,9 @@
 #include "wav_export.h"
 
-#include <cstdio>
 #include <cstring>
 #include <vector>
 
+#include "binary_file.h"
 #include "dc_blocker.h"
 #include "input.h"
 #include "mml_compile.h"
@@ -19,12 +19,6 @@ namespace
 	const unsigned int kWavLoops = 2;
 	const char *kExtensibleGuidTrailer = "\x00\x00\x00\x00\x10\x00\x80\x00\x00\xAA\x00\x38\x9B\x71";
 
-	void pack_int16le(uint8_t *d, int16_t n)
-	{
-		d[0] = static_cast<uint8_t>(static_cast<uint16_t>(n));
-		d[1] = static_cast<uint8_t>(static_cast<uint16_t>(n) >> 8);
-	}
-
 	void pack_uint16le(uint8_t *d, uint16_t n)
 	{
 		d[0] = static_cast<uint8_t>(n);
@@ -39,76 +33,42 @@ namespace
 		d[3] = static_cast<uint8_t>(n >> 24);
 	}
 
-	bool write_wav_header(FILE *f, unsigned int total_frames)
+	// RIFF header with a WAVE_FORMAT_EXTENSIBLE fmt chunk, then the data
+	// chunk header.
+	constexpr size_t kWavHeaderSize = 68;
+
+	void pack_wav_header(uint8_t *d, unsigned int total_frames)
 	{
-		unsigned int data_size = total_frames * (kWavBitDepth / 8) * kWavChannels;
-		uint8_t tmp[4];
-		if (fwrite("RIFF", 1, 4, f) != 4)
-			return false;
-		pack_uint32le(tmp, 4 + (8 + data_size) + (8 + 40));
-		if (fwrite(tmp, 1, 4, f) != 4)
-			return false;
+		const unsigned int data_size = total_frames * (kWavBitDepth / 8) * kWavChannels;
+		std::memcpy(d + 0, "RIFF", 4);
+		pack_uint32le(d + 4, 4 + (8 + data_size) + (8 + 40));
+		std::memcpy(d + 8, "WAVE", 4);
+		std::memcpy(d + 12, "fmt ", 4);
+		pack_uint32le(d + 16, 40);
+		pack_uint16le(d + 20, 0xFFFE);
+		pack_uint16le(d + 22, kWavChannels);
+		pack_uint32le(d + 24, kWavSampleRate);
+		pack_uint32le(d + 28, kWavSampleRate * kWavChannels * (kWavBitDepth / 8));
+		pack_uint16le(d + 32, kWavChannels * (kWavBitDepth / 8));
+		pack_uint16le(d + 34, kWavBitDepth);
+		pack_uint16le(d + 36, 22);
+		pack_uint16le(d + 38, kWavBitDepth);
+		pack_uint32le(d + 40, 3);
+		pack_uint16le(d + 44, 1);
+		std::memcpy(d + 46, kExtensibleGuidTrailer, 14);
+		std::memcpy(d + 60, "data", 4);
+		pack_uint32le(d + 64, data_size);
+	}
 
-		if (fwrite("WAVE", 1, 4, f) != 4)
-			return false;
-		if (fwrite("fmt ", 1, 4, f) != 4)
-			return false;
-
-		pack_uint32le(tmp, 40);
-		if (fwrite(tmp, 1, 4, f) != 4)
-			return false;
-
-		pack_uint16le(tmp, 0xFFFE);
-		if (fwrite(tmp, 1, 2, f) != 2)
-			return false;
-
-		pack_uint16le(tmp, kWavChannels);
-		if (fwrite(tmp, 1, 2, f) != 2)
-			return false;
-
-		pack_uint32le(tmp, kWavSampleRate);
-		if (fwrite(tmp, 1, 4, f) != 4)
-			return false;
-
-		pack_uint32le(tmp, kWavSampleRate * kWavChannels * (kWavBitDepth / 8));
-		if (fwrite(tmp, 1, 4, f) != 4)
-			return false;
-
-		pack_uint16le(tmp, kWavChannels * (kWavBitDepth / 8));
-		if (fwrite(tmp, 1, 2, f) != 2)
-			return false;
-
-		pack_uint16le(tmp, kWavBitDepth);
-		if (fwrite(tmp, 1, 2, f) != 2)
-			return false;
-
-		pack_uint16le(tmp, 22);
-		if (fwrite(tmp, 1, 2, f) != 2)
-			return false;
-
-		pack_uint16le(tmp, kWavBitDepth);
-		if (fwrite(tmp, 1, 2, f) != 2)
-			return false;
-
-		pack_uint32le(tmp, 3);
-		if (fwrite(tmp, 1, 4, f) != 4)
-			return false;
-
-		pack_uint16le(tmp, 1);
-		if (fwrite(tmp, 1, 2, f) != 2)
-			return false;
-
-		if (fwrite(kExtensibleGuidTrailer, 1, 14, f) != 14)
-			return false;
-
-		if (fwrite("data", 1, 4, f) != 4)
-			return false;
-
-		pack_uint32le(tmp, data_size);
-		if (fwrite(tmp, 1, 4, f) != 4)
-			return false;
-
-		return true;
+	// Appends one stereo frame as 16-bit little-endian samples.
+	void append_frame(std::vector<uint8_t> &out, float left, float right)
+	{
+		for (float value : {left, right})
+		{
+			const uint16_t sample = static_cast<uint16_t>(static_cast<int16_t>(value * 32767.0f));
+			out.push_back(static_cast<uint8_t>(sample));
+			out.push_back(static_cast<uint8_t>(sample >> 8));
+		}
 	}
 
 	ExportResult export_wav_song(const std::shared_ptr<Song> &song, const std::string &out_path,
@@ -127,8 +87,8 @@ namespace
 		// Pass 1: render to memory to determine total length and handle loops
 		const unsigned int fade_frames = kWavSampleRate * kWavFadeSeconds;
 		const unsigned int max_frames = kWavSampleRate * 600; // 10 minute safety limit
-		std::vector<int16_t> pcm_data;
-		pcm_data.reserve(kWavSampleRate * 60 * kWavChannels); // pre-allocate ~1 min
+		std::vector<uint8_t> wav(kWavHeaderSize);
+		wav.reserve(kWavHeaderSize + kWavSampleRate * 60 * kWavChannels * (kWavBitDepth / 8)); // ~1 min
 
 		std::vector<WAVE_32BS> scratch(kWavBufferFrames);
 		bool has_loop = false;
@@ -144,8 +104,7 @@ namespace
 			{
 				float l, r;
 				dc_blocker.to_output(scratch[i].L, scratch[i].R, l, r);
-				pcm_data.push_back(static_cast<int16_t>(l * 32767.0f));
-				pcm_data.push_back(static_cast<int16_t>(r * 32767.0f));
+				append_frame(wav, l, r);
 			}
 
 			frames_rendered += chunk;
@@ -180,8 +139,7 @@ namespace
 					float fade = 1.0f - static_cast<float>(fade_rendered + i) / static_cast<float>(fade_frames);
 					float l, r;
 					dc_blocker.to_output(scratch[i].L, scratch[i].R, l, r, fade);
-					pcm_data.push_back(static_cast<int16_t>(l * 32767.0f));
-					pcm_data.push_back(static_cast<int16_t>(r * 32767.0f));
+					append_frame(wav, l, r);
 				}
 				fade_rendered += chunk;
 			}
@@ -191,49 +149,10 @@ namespace
 		if (!renderer.last_error().empty())
 			return {false, renderer.last_error()};
 
-		// Write WAV file
-		FILE *out = fopen(out_path.c_str(), "wb");
-		if (!out)
-			return {false, "unable to open output file"};
-
-		if (!write_wav_header(out, total_frames))
-		{
-			fclose(out);
-			std::remove(out_path.c_str());
-			return {false, "failed to write wav header"};
-		}
-
-		// Write PCM data in chunks (little-endian conversion)
-		{
-			const unsigned int chunk_samples = kWavBufferFrames * kWavChannels;
-			uint8_t chunk_buf[chunk_samples * (kWavBitDepth / 8)];
-			unsigned int remaining = total_frames * kWavChannels;
-			unsigned int pos = 0;
-			bool write_ok = true;
-
-			while (remaining > 0 && write_ok)
-			{
-				unsigned int n = std::min(remaining, chunk_samples);
-				for (unsigned int i = 0; i < n; ++i)
-					pack_int16le(&chunk_buf[i * 2], pcm_data[pos + i]);
-				write_ok = (fwrite(chunk_buf, 2, n, out) == n);
-				pos += n;
-				remaining -= n;
-			}
-
-			if (!write_ok)
-			{
-				fclose(out);
-				std::remove(out_path.c_str());
-				return {false, "failed to write wav data"};
-			}
-		}
-
-		if (fclose(out) != 0)
-		{
-			std::remove(out_path.c_str());
-			return {false, "failed to close wav file"};
-		}
+		pack_wav_header(wav.data(), total_frames);
+		std::string error;
+		if (!write_binary_file(out_path, wav, error))
+			return {false, error};
 		return {true, {}};
 	}
 

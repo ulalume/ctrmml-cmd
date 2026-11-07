@@ -78,6 +78,7 @@ foreach(tgt mmlc mdslink)
 endforeach()
 
 set(CTRMML_CMD_CORE_SOURCES
+  src/binary_file.cpp
   src/check_channel_events.cpp
   src/check_note_range.cpp
   src/check_supplemental.cpp

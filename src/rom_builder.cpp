@@ -3,11 +3,12 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
-#include <fstream>
 #include <iomanip>
 #include <limits>
 #include <sstream>
 #include <vector>
+
+#include "binary_file.h"
 
 namespace
 {
@@ -104,24 +105,6 @@ namespace
 		{
 			return false;
 		}
-	}
-
-	bool write_binary_file(const std::string &path, const std::vector<uint8_t> &bytes, std::string &error)
-	{
-		std::ofstream output(path, std::ios::binary | std::ios::trunc);
-		if (!output)
-		{
-			error = "failed to open output rom: " + path;
-			return false;
-		}
-		output.write(reinterpret_cast<const char *>(bytes.data()),
-								 static_cast<std::streamsize>(bytes.size()));
-		if (!output)
-		{
-			error = "failed to write output rom: " + path;
-			return false;
-		}
-		return true;
 	}
 
 	bool slot_is_valid(size_t rom_size, size_t offset, size_t slot_size)
