@@ -83,7 +83,8 @@ set(CTRMML_CMD_PLAYBACK_SOURCES
   src/vgm_audio_renderer.cpp
   src/ymfm_ym2612_device.cpp
   src/mame_sn76496_device.cpp
-  src/preview_synth.cpp)
+  src/preview_synth.cpp
+  src/playback_song.cpp)
 
 set(CTRMML_CMD_CORE_SOURCES
   src/binary_file.cpp
@@ -290,6 +291,18 @@ else()
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/song_blob_fm_psg.mml"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/song_blob_pcm/song_blob_pcm.mml")
     set_tests_properties(song_blob PROPERTIES TIMEOUT 60)
+
+    add_executable(playback-song-test tests/playback_song_test.cpp)
+    target_include_directories(playback-song-test PRIVATE ${CTRMML_CMD_INCLUDE_DIRS})
+    target_link_libraries(playback-song-test PRIVATE ctrmml-cmd-lib)
+
+    add_test(NAME playback_song
+      COMMAND playback-song-test
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/song_blob_fm_psg.mml"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/song_blob_pcm/song_blob_pcm.mml"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/channel_macro_repro.mml"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/channel_nested_loop.mml")
+    set_tests_properties(playback_song PROPERTIES TIMEOUT 60)
 
     add_executable(preview-volume-test tests/preview_volume_test.cpp)
     target_include_directories(preview-volume-test PRIVATE src)
