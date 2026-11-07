@@ -84,7 +84,8 @@ void SoundDevice::set_rate(uint32_t rate)
 		resmpl_init = false;
 	}
 
-	if (chip_type != CHIP_NONE)
+	// Rate 1 stands for no rate yet: VgmAudioRenderer::setup_stream() follows.
+	if (chip_type != CHIP_NONE && rate > 1)
 	{
 		if (chip_type == CHIP_YM2612)
 			resmpl.smpRateSrc = ymfm_ym2612->sample_rate();
@@ -428,7 +429,9 @@ void VgmAudioRenderer::stop()
 void VgmAudioRenderer::datablock(uint8_t dbtype, uint32_t dbsize, const uint8_t *db, uint32_t maxsize, uint32_t mask,
 																 uint32_t flags, uint32_t offset)
 {
+	// Only the bytes given: a DAC stream ends at the end of the block.
 	auto &block = datablocks[dbtype];
-	block.resize(maxsize);
+	if (block.size() < offset + dbsize)
+		block.resize(offset + dbsize);
 	std::copy_n(db, dbsize, block.begin() + offset);
 }
