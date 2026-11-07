@@ -133,6 +133,9 @@ target_link_libraries(ctrmml-cmd-playback PRIVATE
   ctrmml-cmd-csources)
 if(MSVC)
   target_compile_options(ctrmml-cmd-playback PRIVATE /FIstring)
+else()
+  # No fused multiply-adds: a native build renders the bits of the wasm player.
+  target_compile_options(ctrmml-cmd-playback PRIVATE -ffp-contract=off)
 endif()
 
 set(CTRMML_CMD_LINK_LIBS
@@ -222,6 +225,17 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   target_link_options(ctrmml-player-heap-probe PRIVATE
     ${CTRMML_PLAYER_LINK_OPTIONS}
     "SHELL:-sINITIAL_MEMORY=268435456")
+
+  # The player against the Playback class of a native build, on the fixtures.
+  set(CTRMML_PLAYER_REFERENCE "" CACHE FILEPATH
+    "player-reference of a native build, for the player_parity test")
+  find_program(CTRMML_NODE node)
+  if(BUILD_TESTING AND CTRMML_PLAYER_REFERENCE AND CTRMML_NODE)
+    add_test(NAME player_parity
+      COMMAND ${CTRMML_NODE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/player/parity.mjs"
+        --reference "${CTRMML_PLAYER_REFERENCE}" --seconds 10 "${CMAKE_CURRENT_BINARY_DIR}")
+    set_tests_properties(player_parity PROPERTIES TIMEOUT 300)
+  endif()
 
 else()
   # ---------- Native build ----------
@@ -330,6 +344,11 @@ else()
 
     add_test(NAME playback COMMAND playback-test)
     set_tests_properties(playback PROPERTIES TIMEOUT 20)
+
+    # Replays the scripts of tests/player/parity.mjs.
+    add_executable(player-reference tests/player/reference.cpp)
+    target_include_directories(player-reference PRIVATE ${CTRMML_CMD_INCLUDE_DIRS})
+    target_link_libraries(player-reference PRIVATE ctrmml-cmd-lib)
 
     add_executable(preview-volume-test tests/preview_volume_test.cpp)
     target_include_directories(preview-volume-test PRIVATE src)

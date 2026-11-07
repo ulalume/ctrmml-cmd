@@ -1,22 +1,26 @@
-// Plays songs and preview scenarios on the main wasm module (ctrmml_cmd.js)
-// and on the player module (ctrmml_player.wasm), block by block, and requires
-// the same output bits, ticks, playing state and error text. Reports the
-// player's timings, and with ctrmml_player_heap_probe.wasm, its memory use.
+// Plays songs and preview scenarios on the player module (ctrmml_player.wasm)
+// and on its native reference (player-reference: the same Playback class, with
+// the songs compiled natively), and requires the same output bits, ticks,
+// playing state and error text. The player gets each song as the main wasm
+// module (ctrmml_cmd.js) packs it. Reports the player's timings, and with
+// ctrmml_player_heap_probe.wasm, its memory use.
 //
 //   node tests/player/parity.mjs [options] <wasm-build-dir> [<file.mml or dir>...]
 //
 // Without paths it plays tests/fixtures. Options:
-//   --seconds <n>   longest stretch played from the start (default 60)
-//   --verbose       one line per song
+//   --reference <path>  the player-reference executable of a native build
+//   --seconds <n>       longest stretch played from the start (default 60)
+//   --verbose           one line per song
 
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 
 const SAMPLE_RATE = 44100;
 const BLOCK = 128;
-const MAX_FRAMES = 4096;
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 // ---------------------------------------------------------------------------
@@ -26,14 +30,16 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 let seconds = 60;
 let verbose = false;
+let reference = null;
 const positional = [];
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--seconds') seconds = Number(args[++i]);
+  else if (args[i] === '--reference') reference = path.resolve(args[++i]);
   else if (args[i] === '--verbose') verbose = true;
   else positional.push(args[i]);
 }
-if (positional.length < 1) {
-  console.error('usage: parity.mjs [--seconds n] [--verbose] <wasm-build-dir> [<file.mml or dir>...]');
+if (positional.length < 1 || !reference) {
+  console.error('usage: parity.mjs --reference <player-reference> [--seconds n] [--verbose] <wasm-build-dir> [<file.mml or dir>...]');
   process.exit(2);
 }
 const buildDir = path.resolve(positional[0]);
@@ -54,7 +60,7 @@ function findSongs(root) {
 const songs = songRoots.flatMap(findSongs).sort();
 
 // ---------------------------------------------------------------------------
-// Main module: the Emscripten web build, given its wasm through fetch()
+// Main module: compiles and packs the songs, given its wasm through fetch()
 // ---------------------------------------------------------------------------
 
 async function loadMain() {
@@ -68,7 +74,6 @@ async function loadMain() {
   console.error = () => {};
   const mod = await factory();
   console.error = consoleError;
-  const outPtr = mod._malloc(MAX_FRAMES * 8);
   const sizePtr = mod._malloc(4);
 
   const withString = (str, fn) => {
@@ -81,51 +86,18 @@ async function loadMain() {
       mod._free(ptr);
     }
   };
-  const withBytes = (bytes, fn) => {
-    const ptr = mod._malloc(bytes.length);
-    new Uint8Array(mod.HEAPF32.buffer, ptr, bytes.length).set(bytes);
-    try {
-      return fn(ptr, bytes.length);
-    } finally {
-      mod._free(ptr);
-    }
-  };
 
   return {
     mod,
     lastError: () => mod.UTF8ToString(mod._ctrmml_cmd_wasm_get_last_error()),
     compile: (text, dir) => withString(text, (t) => withString(dir, (d) => mod._ctrmml_cmd_wasm_compile(t, d))),
-    compileAndRelink: (text, dir) =>
-      withString(text, (t) => withString(dir, (d) => mod._ctrmml_cmd_wasm_compile_and_relink(t, d))),
-    serialize() {
-      const ptr = mod._ctrmml_cmd_wasm_serialize_song(sizePtr);
+    pack() {
+      const ptr = mod._ctrmml_cmd_wasm_pack_song(sizePtr);
       if (!ptr) return null;
-      const size = mod.HEAPU32[sizePtr >> 2];
-      return new Uint8Array(mod.HEAPF32.buffer, ptr, size).slice();
+      const bytes = mod.HEAPU8.slice(ptr, ptr + mod.HEAPU32[sizePtr >> 2]);
+      mod._free(ptr);
+      return bytes;
     },
-    start: (tick) => mod._ctrmml_cmd_wasm_start_playback_at_tick(SAMPLE_RATE, tick),
-    stop: () => mod._ctrmml_cmd_wasm_stop_playback(),
-    isPlaying: () => mod._ctrmml_cmd_wasm_is_playing(),
-    ticks: () => mod._ctrmml_cmd_wasm_get_player_ticks(),
-    setChipType: (t) => mod._ctrmml_cmd_wasm_set_ym2612_chip_type(t),
-    setMuteMask: (chip, mask) => mod._ctrmml_cmd_wasm_set_mute_mask(chip, mask),
-    setStopAtPcmEnd: (on) => mod._ctrmml_cmd_wasm_set_stop_at_pcm_end(on),
-    // Interleaved output bits; empty when nothing played.
-    render(frames) {
-      const n = mod._ctrmml_cmd_wasm_render_audio(outPtr, frames);
-      return new Uint32Array(mod.HEAPF32.buffer, outPtr, n * 2);
-    },
-    previewInit: (rate) => mod._preview_init(rate),
-    previewDeinit: () => mod._preview_deinit(),
-    previewLoadFm: (bytes) => withBytes(bytes, (p, n) => mod._preview_load_fm(p, n)),
-    previewLoadPsg: (bytes) => withBytes(bytes, (p, n) => mod._preview_load_psg(p, n)),
-    previewSetMode: (m) => mod._preview_set_mode(m),
-    previewNoteOn: (n, v) => mod._preview_note_on(n, v),
-    previewNoteOnAttenuation: (n, a) => mod._preview_note_on_attenuation(n, a),
-    previewNoteOff: (n) => mod._preview_note_off(n),
-    previewAllNotesOff: () => mod._preview_all_notes_off(),
-    previewSetFmOpMask: (m) => mod._preview_set_fm_op_mask(m),
-    previewSetMono: (m) => mod._preview_set_mono(m),
   };
 }
 
@@ -230,56 +202,137 @@ function instantiatePlayer(module) {
 }
 
 // ---------------------------------------------------------------------------
-// Lockstep comparison
+// Sessions: calls on the player, recorded with what they returned, for the
+// native reference to replay. See tests/player/reference.cpp.
 // ---------------------------------------------------------------------------
 
-class Mismatch extends Error {}
+const script = [];
+const expected = [];
 
-/** Renders `frames` on both and throws on the first difference. */
-function renderBoth(main, player, frames, where) {
-  const m = main.render(frames);
-  const [l, r] = player.render(frames);
-  const mainFrames = m.length / 2;
-  for (let i = 0; i < frames; i++) {
-    const ml = i < mainFrames ? m[i * 2] : 0;
-    const mr = i < mainFrames ? m[i * 2 + 1] : 0;
-    if (ml !== l[i] || mr !== r[i]) {
-      throw new Mismatch(`${where}: sample ${i} differs (main ${ml.toString(16)}/${mr.toString(16)}, player ${l[i].toString(16)}/${r[i].toString(16)})`);
+/** FNV-1a over 32-bit words, as reference.cpp computes it. */
+function hashWords(hash, words) {
+  for (let i = 0; i < words.length; i++) hash = Math.imul(hash ^ words[i], 16777619);
+  return hash;
+}
+
+class Session {
+  constructor(playerModule, name) {
+    this.player = instantiatePlayer(playerModule);
+    this.name = name;
+    this.blob = null;
+    this.call(`reset ${SAMPLE_RATE}`);
+  }
+
+  call(line) {
+    script.push(line);
+  }
+
+  expect(line, where) {
+    expected.push({ line, where: `${this.name}: ${where}` });
+  }
+
+  state(hash) {
+    const p = this.player;
+    return `${(hash >>> 0).toString(16).padStart(8, '0')} ${p.isPlaying()} ${p.ticks() >>> 0} ${p.lastError()}`;
+  }
+
+  renderBlock(frames, hash) {
+    const [l, r] = this.player.render(frames);
+    hash = hashWords(hash, l);
+    hash = hashWords(hash, r);
+    return hashWords(hash, [this.player.isPlaying(), this.player.ticks()]);
+  }
+
+  /** The song for load() and relink(): `file` as the main module packed it. */
+  song(file, blob) {
+    this.blob = blob;
+    this.call(`compile ${file}`);
+    this.expect('compile 0', `compile ${path.basename(file)}`);
+  }
+
+  load(tick, where) {
+    const rc = this.player.load(this.blob, tick);
+    this.call(`load ${tick}`);
+    this.expect(`load ${rc} ${this.player.lastError()}`, where);
+    return rc;
+  }
+
+  relink(where) {
+    const rc = this.player.relink(this.blob);
+    this.call('relink');
+    this.expect(`relink ${rc} ${this.player.lastError()}`, where);
+    return rc;
+  }
+
+  stop() {
+    this.player.stop();
+    this.call('stop');
+  }
+
+  /** Renders blocks while the song plays, at most `maxBlocks`. Returns how many. */
+  play(maxBlocks, where) {
+    let hash = 2166136261;
+    let blocks = 0;
+    while (blocks < maxBlocks && this.player.isPlaying()) {
+      hash = this.renderBlock(BLOCK, hash);
+      blocks++;
+    }
+    this.call(`play ${maxBlocks}`);
+    this.expect(`play ${blocks} ${this.state(hash)}`, where);
+    return blocks;
+  }
+
+  /** Renders `count` frames in calls of `block` frames. */
+  render(count, block = BLOCK, where = 'render') {
+    const runs = [[block, Math.floor(count / block)]];
+    if (count % block) runs.push([count % block, 1]);
+    for (const [frames, times] of runs) {
+      let hash = 2166136261;
+      for (let i = 0; i < times; i++) hash = this.renderBlock(frames, hash);
+      this.call(`render ${frames} ${times}`);
+      this.expect(`render ${this.state(hash)}`, `${where} (${times} x ${frames} frames)`);
     }
   }
-  if (main.isPlaying() !== player.isPlaying()) {
-    throw new Mismatch(`${where}: playing ${main.isPlaying()} vs ${player.isPlaying()}`);
-  }
-  if (main.ticks() !== player.ticks()) {
-    throw new Mismatch(`${where}: ticks ${main.ticks()} vs ${player.ticks()}`);
-  }
-  return mainFrames;
+
+  setChipType(t) { this.player.setChipType(t); this.call(`chip ${t}`); }
+  setMuteMask(chip, mask) { this.player.setMuteMask(chip, mask); this.call(`mute ${chip} ${mask >>> 0}`); }
+  setStopAtPcmEnd(on) { this.player.setStopAtPcmEnd(on); this.call(`pcm_end ${on}`); }
+  previewInit(rate) { this.player.previewInit(rate); this.call(`preview_init ${rate}`); }
+  previewDeinit() { this.player.previewDeinit(); this.call('preview_deinit'); }
+  previewLoadFm(bytes) { this.player.previewLoadFm(bytes); this.call(`preview_fm ${hex(bytes)}`); }
+  previewLoadPsg(bytes) { this.player.previewLoadPsg(bytes); this.call(`preview_psg ${hex(bytes)}`); }
+  previewSetMode(m) { this.player.previewSetMode(m); this.call(`preview_mode ${m}`); }
+  previewNoteOn(n, v) { this.player.previewNoteOn(n, v); this.call(`note_on ${n} ${v}`); }
+  previewNoteOnAttenuation(n, a) { this.player.previewNoteOnAttenuation(n, a); this.call(`note_on_attenuation ${n} ${a}`); }
+  previewNoteOff(n) { this.player.previewNoteOff(n); this.call(`note_off ${n}`); }
+  previewAllNotesOff() { this.player.previewAllNotesOff(); this.call('all_notes_off'); }
+  previewSetFmOpMask(m) { this.player.previewSetFmOpMask(m); this.call(`op_mask ${m}`); }
+  previewSetMono(m) { this.player.previewSetMono(m); this.call(`mono ${m}`); }
 }
 
-/** Plays up to `blocks` blocks, or until the song ends. Returns blocks played. */
-function playBoth(main, player, blocks, where) {
-  let played = 0;
-  while (played < blocks && main.isPlaying()) {
-    renderBoth(main, player, BLOCK, `${where} block ${played}`);
-    played++;
-  }
-  // Once the song has ended both must stay silent.
-  renderBoth(main, player, BLOCK, `${where} after end`);
-  if (main.lastError() !== player.lastError()) {
-    throw new Mismatch(`${where}: error "${main.lastError()}" vs "${player.lastError()}"`);
-  }
-  return played;
+function hex(bytes) {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** Times only the player, rendering `blocks` blocks or until the song ends. */
-function timePlayer(player, blocks) {
-  const times = [];
-  for (let i = 0; i < blocks && player.isPlaying(); i++) {
-    const t0 = performance.now();
-    player.ex.player_render(BLOCK);
-    times.push(performance.now() - t0);
-  }
-  return times;
+/** Replays the recorded script on the reference. Returns the differences. */
+function compareWithReference() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'player-parity-'));
+  const scriptPath = path.join(dir, 'script.txt');
+  fs.writeFileSync(scriptPath, `${script.join('\n')}\n`);
+  const run = spawnSync(reference, [scriptPath], { encoding: 'utf8', maxBuffer: 1 << 28 });
+  fs.rmSync(dir, { recursive: true, force: true });
+  if (run.status !== 0) return [`reference failed (${run.status ?? run.signal}): ${run.stderr}`];
+  const lines = run.stdout.split('\n');
+  const differences = [];
+  const failed = new Set();
+  expected.forEach(({ line, where }, i) => {
+    const owner = where.split(':')[0];
+    if (lines[i] !== line && !failed.has(owner)) {
+      failed.add(owner);
+      differences.push(`${where}: player "${line}", reference "${lines[i]}"`);
+    }
+  });
+  return differences;
 }
 
 // ---------------------------------------------------------------------------
@@ -304,6 +357,16 @@ function mirrorSong(mod, file) {
   return { text, dir };
 }
 
+/** The song packed by the main module, or null with the compile error. */
+function packSong(main, file) {
+  const { text, dir } = mirrorSong(main.mod, file);
+  const z0 = performance.now();
+  if (main.compile(text, dir) !== 0) return { error: main.lastError().split('\n')[0] };
+  const blob = main.pack();
+  const packMs = performance.now() - z0;
+  return blob ? { blob, packMs } : { error: main.lastError() };
+}
+
 function blocksFor(secs) {
   return Math.ceil((secs * SAMPLE_RATE) / BLOCK);
 }
@@ -319,6 +382,17 @@ function summarize(times) {
   return { mean: sum / times.length, max };
 }
 
+/** Times only the player, rendering `blocks` blocks or until the song ends. */
+function timePlayer(player, blocks) {
+  const times = [];
+  for (let i = 0; i < blocks && player.isPlaying(); i++) {
+    const t0 = performance.now();
+    player.ex.player_render(BLOCK);
+    times.push(performance.now() - t0);
+  }
+  return times;
+}
+
 /** Loads, plays and relinks a song on a heap probe player, with the preview on. */
 function exerciseProbe(probe, blob, tick) {
   probe.previewInit(SAMPLE_RATE);
@@ -330,121 +404,100 @@ function exerciseProbe(probe, blob, tick) {
   timePlayer(probe, blocksFor(1));
 }
 
-async function runSongs(main, playerModule, probeModule) {
-  const results = { passed: 0, failed: [], skipped: [], errors: [], startErrors: [] };
+function runSongs(main, playerModule, probeModule) {
+  const results = { count: 0, skipped: [], errors: [], startErrors: [] };
   const stats = [];
   // One probe for every song in turn, as a page would use the player.
   const longProbe = probeModule ? instantiatePlayer(probeModule) : null;
   let previous = null;
   for (const file of songs) {
     const name = path.relative(process.cwd(), file);
-    const { text, dir } = mirrorSong(main.mod, file);
-    if (main.compile(text, dir) !== 0) {
-      results.skipped.push(`${name}: ${main.lastError().split('\n')[0]}`);
+    const packed = packSong(main, file);
+    if (!packed.blob) {
+      results.skipped.push(`${name}: ${packed.error}`);
       continue;
     }
-    const z0 = performance.now();
-    const blob = main.serialize();
-    const serializeMs = performance.now() - z0;
-    const player = instantiatePlayer(playerModule);
-    try {
-      // From the start. A song that cannot start must fail the same way.
-      const mainRc = main.start(0);
-      const t0 = performance.now();
-      const playerRc = player.load(blob, 0);
-      const loadMs = performance.now() - t0;
-      if (mainRc !== playerRc || main.lastError() !== player.lastError()) {
-        throw new Mismatch(`start ${mainRc} "${main.lastError()}", load ${playerRc} "${player.lastError()}"`);
-      }
-      if (mainRc !== 0) {
-        results.startErrors.push(`${name}: ${main.lastError()}`);
-        results.passed++;
-        previous = { text, dir };
-        continue;
-      }
-      const played = playBoth(main, player, blocksFor(seconds), 'start');
-      if (main.lastError()) results.errors.push(`${name}: ${main.lastError()}`);
-
-      // From a tick a third of the way in.
-      main.start(0);
-      player.load(blob, 0);
-      for (let i = 0; i < Math.floor(played / 3); i++) renderBoth(main, player, BLOCK, 'seek');
-      const midTick = main.ticks();
-      main.stop();
-      player.stop();
-      if (main.start(midTick) !== 0) throw new Mismatch(`start at ${midTick}: ${main.lastError()}`);
-      if (player.load(blob, midTick) !== 0) throw new Mismatch(`load at ${midTick}: ${player.lastError()}`);
-      playBoth(main, player, blocksFor(Math.min(seconds, 20)), `tick ${midTick}`);
-
-      // Relinked a third of the way in: to the same song, then to the
-      // previous song.
-      let relinkMs = 0;
-      const relinkTo = [{ text, dir, label: 'itself' }];
-      if (previous) relinkTo.push({ ...previous, label: 'previous song' });
-      for (const target of relinkTo) {
-        main.compile(text, dir);
-        main.start(0);
-        player.load(blob, 0);
-        for (let i = 0; i < Math.floor(played / 3) && main.isPlaying(); i++) {
-          renderBoth(main, player, BLOCK, `before relink to ${target.label}`);
-        }
-        const mainRc = main.compileAndRelink(target.text, target.dir);
-        const targetBlob = main.serialize();
-        const r0 = performance.now();
-        const playerRc = player.relink(targetBlob);
-        relinkMs = Math.max(relinkMs, performance.now() - r0);
-        if (mainRc !== playerRc) throw new Mismatch(`relink to ${target.label}: ${mainRc} vs ${playerRc}`);
-        if (main.lastError() !== player.lastError()) {
-          throw new Mismatch(`relink to ${target.label}: "${main.lastError()}" vs "${player.lastError()}"`);
-        }
-        playBoth(main, player, blocksFor(Math.min(seconds, 20)), `relinked to ${target.label}`);
-      }
-      main.stop();
-
-      // Player timing on its own, from a fresh instance.
-      globalThis.gc?.();
-      const solo = instantiatePlayer(playerModule);
-      const s0 = performance.now();
-      solo.load(blob, 0);
-      const soloLoadMs = performance.now() - s0;
-      const soloTimes = timePlayer(solo, blocksFor(seconds));
-
-      let heapPeak = null;
-      if (probeModule) {
-        const probe = instantiatePlayer(probeModule);
-        exerciseProbe(probe, blob, midTick);
-        heapPeak = probe.ex.probe_heap_base() + probe.ex.probe_heap_peak();
-        exerciseProbe(longProbe, blob, midTick);
-      }
-
-      stats.push({
-        name,
-        printed: player.log.length + solo.log.length,
-        blobBytes: blob.length,
-        serializeMs,
-        loadMs: Math.min(loadMs, soloLoadMs),
-        relinkMs,
-        firstBlockMs: soloTimes[0] ?? 0,
-        ...summarize(soloTimes.slice(1)),
-        p99: soloTimes.length > 1 ? [...soloTimes.slice(1)].sort((a, b) => a - b)[Math.floor((soloTimes.length - 2) * 0.99)] : 0,
-        heapPeak,
-      });
-      results.passed++;
-      if (verbose) console.log(`ok   ${name} (${played} blocks, blob ${blob.length} B)`);
-    } catch (e) {
-      if (!(e instanceof Mismatch)) throw e;
-      results.failed.push(`${name}: ${e.message}`);
-      console.log(`FAIL ${name}: ${e.message}`);
-      main.stop();
+    const { blob } = packed;
+    results.count++;
+    const s = new Session(playerModule, name);
+    s.song(file, blob);
+    const t0 = performance.now();
+    const rc = s.load(0, 'start');
+    const loadMs = performance.now() - t0;
+    if (rc !== 0) {
+      results.startErrors.push(`${name}: ${s.player.lastError()}`);
+      previous = { file, blob };
+      continue;
     }
-    previous = { text, dir };
+
+    // From the start, then once it has ended.
+    const played = s.play(blocksFor(seconds), 'start');
+    s.render(BLOCK, BLOCK, 'start, after the end');
+    if (s.player.lastError()) results.errors.push(`${name}: ${s.player.lastError()}`);
+
+    // From a tick a third of the way in.
+    s.load(0, 'seek');
+    s.render(Math.floor(played / 3) * BLOCK, BLOCK, 'seek');
+    const midTick = s.player.ticks() >>> 0;
+    s.stop();
+    s.load(midTick, `start at ${midTick}`);
+    s.play(blocksFor(Math.min(seconds, 20)), `from tick ${midTick}`);
+    s.render(BLOCK, BLOCK, `from tick ${midTick}, after the end`);
+
+    // Relinked a third of the way in: to the same song, then to the
+    // previous song.
+    let relinkMs = 0;
+    const relinkTo = [{ file, blob, label: 'itself' }];
+    if (previous) relinkTo.push({ ...previous, label: 'the previous song' });
+    for (const target of relinkTo) {
+      s.song(file, blob);
+      s.load(0, `before relink to ${target.label}`);
+      s.play(Math.floor(played / 3), `before relink to ${target.label}`);
+      s.song(target.file, target.blob);
+      const r0 = performance.now();
+      s.relink(`relink to ${target.label}`);
+      relinkMs = Math.max(relinkMs, performance.now() - r0);
+      s.play(blocksFor(Math.min(seconds, 20)), `relinked to ${target.label}`);
+      s.render(BLOCK, BLOCK, `relinked to ${target.label}, after the end`);
+    }
+
+    // Player timing on its own, from a fresh instance.
+    globalThis.gc?.();
+    const solo = instantiatePlayer(playerModule);
+    const s0 = performance.now();
+    solo.load(blob, 0);
+    const soloLoadMs = performance.now() - s0;
+    const soloTimes = timePlayer(solo, blocksFor(seconds));
+
+    let heapPeak = null;
+    if (probeModule) {
+      const probe = instantiatePlayer(probeModule);
+      exerciseProbe(probe, blob, midTick);
+      heapPeak = probe.ex.probe_heap_base() + probe.ex.probe_heap_peak();
+      exerciseProbe(longProbe, blob, midTick);
+    }
+
+    stats.push({
+      name,
+      printed: s.player.log.length + solo.log.length,
+      blobBytes: blob.length,
+      packMs: packed.packMs,
+      loadMs: Math.min(loadMs, soloLoadMs),
+      relinkMs,
+      firstBlockMs: soloTimes[0] ?? 0,
+      ...summarize(soloTimes.slice(1)),
+      p99: soloTimes.length > 1 ? [...soloTimes.slice(1)].sort((a, b) => a - b)[Math.floor((soloTimes.length - 2) * 0.99)] : 0,
+      heapPeak,
+    });
+    if (verbose) console.log(`played ${name} (${played} blocks, blob ${blob.length} B)`);
+    previous = { file, blob };
   }
   const longPeak = longProbe ? longProbe.ex.probe_heap_base() + longProbe.ex.probe_heap_peak() : null;
   return { results, stats, longPeak };
 }
 
 // ---------------------------------------------------------------------------
-// Preview scenarios (as in ctrmml-golden's preview_hash.cpp)
+// Preview scenarios
 // ---------------------------------------------------------------------------
 
 const PATCH_A = [
@@ -463,29 +516,6 @@ const ENV_SUSTAIN_RELEASE = [0x2f, 0x23, 0x15, 0x01, 0x16, 0x27, 0x38, 0x02, 0x0
 const ENV_LOOP_HOLD = [0x10, 0x31, 0x22, 0x13, 0x24, 0x02, 0x01, 0x00];
 const ENV_SUSTAIN_LOOP = [0x30, 0x22, 0x01, 0x14, 0x25, 0x02, 0x02, 0x00];
 const ENV_DECAY = [0x3f, 0x2a, 0x25, 0x14, 0x12, 0x11, 0x00];
-
-/** Applies each call to both modules; render() compares the output. */
-function lockstep(main, player, scenario) {
-  let blocks = 0;
-  const both = new Proxy({}, {
-    get(_, name) {
-      if (name === 'render') {
-        return (count, block = BLOCK) => {
-          while (count > 0) {
-            const n = Math.min(block, count);
-            renderBoth(main, player, n, `${scenario} block ${blocks++}`);
-            count -= n;
-          }
-        };
-      }
-      return (...a) => {
-        main[name](...a);
-        player[name](...a);
-      };
-    },
-  });
-  return both;
-}
 
 const previewScenarios = {
   fm_poly(s, chip, patch) {
@@ -667,8 +697,7 @@ const previewScenarios = {
   },
 };
 
-function runPreview(main, playerModule) {
-  const failed = [];
+function runPreview(playerModule) {
   const runs = [
     ['fm_poly_ym2612_A', (s) => previewScenarios.fm_poly(s, 0, PATCH_A)],
     ['fm_poly_ym3438_A', (s) => previewScenarios.fm_poly(s, 1, PATCH_A)],
@@ -689,59 +718,41 @@ function runPreview(main, playerModule) {
     ['noise2_decay', (s) => previewScenarios.psg_noise(s, 2, ENV_DECAY)],
     ['mixed_modes', (s) => previewScenarios.mixed_modes(s)],
   ];
-  const player = instantiatePlayer(playerModule);
-  for (const [name, run] of runs) {
-    try {
-      run(lockstep(main, player, name));
-    } catch (e) {
-      if (!(e instanceof Mismatch)) throw e;
-      failed.push(`${name}: ${e.message}`);
-    }
-    main.previewDeinit();
-    player.previewDeinit();
-  }
-  main.setChipType(0);
-  player.setChipType(0);
-  return { count: runs.length, failed };
+  for (const [name, run] of runs) run(new Session(playerModule, `preview ${name}`));
+  return runs.length;
 }
 
-/** Preview notes over a playing song, with mute masks and a chip switch. */
+/** Preview notes over a playing song, with mute masks and chip switches. */
 function runSongWithPreview(main, playerModule, file) {
-  const { text, dir } = mirrorSong(main.mod, file);
-  if (main.compile(text, dir) !== 0) return `compile failed: ${main.lastError()}`;
-  const blob = main.serialize();
-  const player = instantiatePlayer(playerModule);
-  const s = lockstep(main, player, 'song with preview');
-  try {
-    s.previewInit(SAMPLE_RATE);
-    s.previewLoadFm(PATCH_A);
-    main.start(0);
-    player.load(blob, 0);
-    s.render(BLOCK * 50);
-    s.previewNoteOn(60, 100);
-    s.render(BLOCK * 100);
-    s.setMuteMask(2, 0x3c);
-    s.setChipType(1);
-    s.previewNoteOn(67, 90);
-    s.render(BLOCK * 100);
-    s.setMuteMask(2, 0);
-    s.setMuteMask(0, 0x0f);
-    s.setChipType(0);
-    s.previewNoteOff(60);
-    s.previewNoteOff(67);
-    s.render(BLOCK * 400);
-    main.stop();
-    player.stop();
-    s.render(BLOCK * 100);
-    s.previewDeinit();
-    return null;
-  } catch (e) {
-    if (!(e instanceof Mismatch)) throw e;
-    return e.message;
-  } finally {
-    main.stop();
-    main.previewDeinit();
-  }
+  const packed = packSong(main, file);
+  if (!packed.blob) return `${path.basename(file)} did not compile: ${packed.error}`;
+  const s = new Session(playerModule, `song with preview (${path.basename(file)})`);
+  s.previewInit(SAMPLE_RATE);
+  s.previewLoadFm(PATCH_A);
+  s.song(file, packed.blob);
+  s.load(0, 'start');
+  s.render(BLOCK * 50);
+  s.previewNoteOn(60, 100);
+  s.render(BLOCK * 100);
+  s.setMuteMask(2, 0x3c);
+  s.setChipType(1);
+  s.previewNoteOn(67, 90);
+  s.render(BLOCK * 100);
+  s.setMuteMask(2, 0);
+  s.setMuteMask(0, 0x0f);
+  s.setChipType(0);
+  s.previewNoteOff(60);
+  s.previewNoteOff(67);
+  s.render(BLOCK * 400);
+  s.stop();
+  s.render(BLOCK * 100);
+  s.previewInit(SAMPLE_RATE);
+  s.load(0, 'restart');
+  s.previewNoteOn(64, 100);
+  s.render(BLOCK * 20);
+  s.previewInit(SAMPLE_RATE);
+  s.render(BLOCK * 20);
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -756,26 +767,26 @@ console.log(`player: ${fs.statSync(path.join(buildDir, 'ctrmml_player.wasm')).si
   `memory ${instantiatePlayer(playerModule).ex.memory.buffer.byteLength} bytes`);
 console.log(`imports: ${imports.join(', ')}`);
 
-const preview = runPreview(main, playerModule);
-console.log(`preview: ${preview.count - preview.failed.length}/${preview.count} scenarios identical`);
-for (const f of preview.failed) console.log(`  FAIL ${f}`);
-
-const { results, stats, longPeak } = await runSongs(main, playerModule, probeModule);
-console.log(`songs: ${results.passed}/${results.passed + results.failed.length} identical ` +
-  `(${results.skipped.length} did not compile)`);
-for (const s of results.skipped) console.log(`  skipped ${s}`);
-for (const e of results.startErrors) console.log(`  start error, same on both: ${e}`);
-for (const e of results.errors) console.log(`  playback error, same on both: ${e}`);
-
+const previewCount = runPreview(playerModule);
+const { results, stats, longPeak } = runSongs(main, playerModule, probeModule);
 const mixed = songs.find((f) => f.endsWith('song_blob_fm_psg.mml')) ?? songs[0];
 const mixedError = runSongWithPreview(main, playerModule, mixed);
-console.log(`song with preview (${path.basename(mixed)}): ${mixedError ? `FAIL ${mixedError}` : 'identical'}`);
+const differences = compareWithReference();
+
+console.log(`compared ${expected.length} results of ${previewCount} preview scenarios, ` +
+  `${results.count} songs and a song with preview with the reference: ` +
+  `${differences.length ? `${differences.length} differ` : 'identical'}`);
+for (const d of differences) console.log(`  FAIL ${d}`);
+if (mixedError) console.log(`  FAIL ${mixedError}`);
+for (const s of results.skipped) console.log(`  skipped ${s}`);
+for (const e of results.startErrors) console.log(`  start error: ${e}`);
+for (const e of results.errors) console.log(`  playback error: ${e}`);
 
 if (stats.length) {
   const heaviest = [...stats].sort((a, b) => b.blobBytes - a.blobBytes).slice(0, 5);
   const slowest = [...stats].sort((a, b) => b.mean - a.mean).slice(0, 5);
   const slowestLoads = [...stats].sort((a, b) => b.loadMs - a.loadMs).slice(0, 5);
-  const fmt = (s) => `  ${s.name}: blob ${s.blobBytes} B, serialize ${s.serializeMs.toFixed(2)} ms, ` +
+  const fmt = (s) => `  ${s.name}: blob ${s.blobBytes} B, compile and pack ${s.packMs.toFixed(2)} ms, ` +
     `load ${s.loadMs.toFixed(2)} ms, relink ${s.relinkMs.toFixed(2)} ms, ` +
     `first block ${s.firstBlockMs.toFixed(3)} ms, block mean ${s.mean.toFixed(4)} ms ` +
     `p99 ${s.p99.toFixed(3)} ms max ${s.max.toFixed(3)} ms` +
@@ -802,5 +813,4 @@ if (stats.length) {
   }
 }
 
-const ok = !preview.failed.length && !results.failed.length && !mixedError;
-process.exit(ok ? 0 : 1);
+process.exit(differences.length || mixedError ? 1 : 0);
