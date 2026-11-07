@@ -222,6 +222,7 @@ else()
     add_check_json_test(check_channel_direct_psg channel_direct_psg.mml FALSE 1 0
       "Panning not supported for PSG channels" "\"line\":2,\"col\":6")
     add_check_json_test(check_channel_pan_clear channel_pan_clear.mml TRUE 0 0 "" "")
+    add_check_json_test(check_instrument_type_case instrument_type_case.mml TRUE 0 0 "" "")
     add_check_json_test(check_channel_nested_loop channel_nested_loop.mml TRUE 0 1
       "Panning is not supported for PSG channels: in-app playback will stop here (MDSDRV hardware ignores it) (channel G, macro *403)"
       "\"line\":4,\"col\":6")

@@ -7,6 +7,8 @@
 #include <string_view>
 #include <unordered_map>
 
+#include "stringf.h"
+
 namespace
 {
 using ctrmml_cmd::CheckMessage;
@@ -340,7 +342,7 @@ std::vector<CheckMessage> SupplementalChecker::collect_errors(const std::string 
 		const auto type_span = preferred_span(&type_token, tag.key_span);
 		const std::string &type = type_token.value;
 
-		if (type == "fm")
+		if (iequal(type, "fm"))
 		{
 			if (tag.tokens.size() < 43)
 			{
@@ -354,7 +356,7 @@ std::vector<CheckMessage> SupplementalChecker::collect_errors(const std::string 
 			continue;
 		}
 
-		if (type == "2op")
+		if (iequal(type, "2op"))
 		{
 			if (tag.tokens.size() < 7)
 			{
@@ -380,13 +382,13 @@ std::vector<CheckMessage> SupplementalChecker::collect_errors(const std::string 
 			continue;
 		}
 
-		if (type == "psg")
+		if (iequal(type, "psg"))
 		{
 			defined_instruments[instrument_id] = true;
 			continue;
 		}
 
-		if (type == "pcm")
+		if (iequal(type, "pcm"))
 		{
 			if (tag.tokens.size() < 2 || tag.tokens[1].value.empty())
 			{
@@ -468,7 +470,7 @@ std::optional<CheckMessage> SupplementalChecker::try_map_locationless_error(cons
 			uint16_t instrument_id = 0;
 			if (!is_instrument_key(tag.key, instrument_id))
 				continue;
-			if (!tag.tokens.empty() && tag.tokens.front().value == "pcm")
+			if (!tag.tokens.empty() && iequal(tag.tokens.front().value, "pcm"))
 			{
 				const TagToken *path_token = tag.tokens.size() >= 2 ? &tag.tokens[1] : nullptr;
 				return make_message(display_name,
@@ -491,7 +493,7 @@ std::optional<CheckMessage> SupplementalChecker::try_map_locationless_error(cons
 			uint16_t instrument_id = 0;
 			if (!is_instrument_key(tag.key, instrument_id))
 				continue;
-			if (tag.tokens.size() >= 2 && tag.tokens.front().value == "pcm" && tag.tokens[1].value == path)
+			if (tag.tokens.size() >= 2 && iequal(tag.tokens.front().value, "pcm") && tag.tokens[1].value == path)
 			{
 				return make_message(display_name,
 														preferred_content_span(&tag.tokens[1], tag.key_span),

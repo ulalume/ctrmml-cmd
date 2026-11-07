@@ -1,6 +1,5 @@
 #include "check_channel_events.h"
 
-#include <cctype>
 #include <cstdint>
 #include <iterator>
 #include <memory>
@@ -13,6 +12,7 @@
 #include "input.h"
 #include "player.h"
 #include "song.h"
+#include "stringf.h"
 #include "track.h"
 
 namespace
@@ -28,18 +28,6 @@ namespace
 		PAN,
 		LFO,
 	};
-
-	bool equals_ascii_case_insensitive(const std::string &value, const char *expected)
-	{
-		size_t i = 0;
-		for (; i < value.size() && expected[i]; ++i)
-		{
-			if (std::tolower(static_cast<unsigned char>(value[i])) !=
-					std::tolower(static_cast<unsigned char>(expected[i])))
-				return false;
-		}
-		return i == value.size() && expected[i] == '\0';
-	}
 
 	ctrmml_cmd::CheckMessage make_warning(
 			const std::shared_ptr<InputRef> &ref,
@@ -157,7 +145,7 @@ namespace
 			try
 			{
 				const Tag &tag = get_song()->get_platform_command(candidate.param);
-				return !tag.empty() && equals_ascii_case_insensitive(tag.front(), "lfo")
+				return !tag.empty() && iequal(tag.front(), "lfo")
 						? ForbiddenEventKind::LFO
 						: ForbiddenEventKind::NONE;
 			}
