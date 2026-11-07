@@ -15,6 +15,7 @@
 #include "mdslink_tool.h"
 #include "mml_compile.h"
 #include "platform/mdsdrv.h"
+#include "playback_song.h"
 #include "preview_synth.h"
 #include "rom_builder.h"
 #include "template_rom_data.h"
@@ -34,6 +35,7 @@ namespace
 	std::unique_ptr<MDSDRV_Data> g_instrument_data;
 	bool g_instrument_data_stale = false;
 	std::unique_ptr<PreviewSynth> g_preview;
+	std::vector<uint8_t> g_playback_song;
 
 	std::string g_last_error;
 	std::string g_check_json_result;
@@ -253,6 +255,29 @@ extern "C" int ctrmml_cmd_wasm_compile_and_relink(const char *text, const char *
 	}
 
 	return 0;
+}
+
+extern "C" const uint8_t *ctrmml_cmd_wasm_serialize_song(uint32_t *size)
+{
+	if (size)
+		*size = 0;
+	if (!g_compile.song)
+	{
+		set_error("no compiled song");
+		return nullptr;
+	}
+	try
+	{
+		g_playback_song = pack_playback_song(*g_compile.song);
+	}
+	catch (std::exception &e)
+	{
+		set_error(e.what());
+		return nullptr;
+	}
+	if (size)
+		*size = static_cast<uint32_t>(g_playback_song.size());
+	return g_playback_song.data();
 }
 
 extern "C" void ctrmml_cmd_wasm_set_mute_mask(int32_t chip_id, uint32_t mask)

@@ -29,6 +29,11 @@ extern "C"
 	// playback is preserved on error so audio can keep playing).
 	int ctrmml_cmd_wasm_compile_and_relink(const char *text, const char *base_dir);
 
+	// The compiled song as the player module loads it (pack_playback_song()).
+	// The bytes stay valid until the next call; null on failure, with the
+	// reason in ctrmml_cmd_wasm_get_last_error().
+	const uint8_t *ctrmml_cmd_wasm_serialize_song(uint32_t *size);
+
 	// Tick tracking + highlights
 	uint32_t ctrmml_cmd_wasm_get_player_ticks();
 	uint32_t ctrmml_cmd_wasm_get_highlights(uint32_t ticks,
