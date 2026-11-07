@@ -14,6 +14,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # exceptions in the legacy encoding, which Safari supports from 15.2.
 if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   add_compile_options(-fwasm-exceptions "SHELL:-sWASM_LEGACY_EXCEPTIONS=1")
+  add_link_options(-fwasm-exceptions "SHELL:-sWASM_LEGACY_EXCEPTIONS=1")
 endif()
 
 set(CTRMML_TEMPLATE_ROM "${CMAKE_CURRENT_SOURCE_DIR}/assets/template.bin")
@@ -182,8 +183,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   endif()
 
   target_link_options(ctrmml-cmd-wasm PRIVATE
-    -fwasm-exceptions
-    "SHELL:-sWASM_LEGACY_EXCEPTIONS=1"
     "SHELL:-sALLOW_MEMORY_GROWTH=1"
     "SHELL:-sEXPORTED_FUNCTIONS=_malloc,_free,_ctrmml_cmd_wasm_compile,_ctrmml_cmd_wasm_get_compile_error,_ctrmml_cmd_wasm_check_json,_ctrmml_cmd_wasm_start_playback,_ctrmml_cmd_wasm_start_playback_at_tick,_ctrmml_cmd_wasm_stop_playback,_ctrmml_cmd_wasm_is_playing,_ctrmml_cmd_wasm_render_audio,_ctrmml_cmd_wasm_set_mute_mask,_ctrmml_cmd_wasm_set_ym2612_chip_type,_ctrmml_cmd_wasm_set_lowpass_filter,_ctrmml_cmd_wasm_set_stop_at_pcm_end,_ctrmml_cmd_wasm_compile_and_relink,_ctrmml_cmd_wasm_serialize_song,_ctrmml_cmd_wasm_get_player_ticks,_ctrmml_cmd_wasm_get_highlights,_ctrmml_cmd_wasm_export_vgm,_ctrmml_cmd_wasm_export_wav,_ctrmml_cmd_wasm_quickrom,_ctrmml_cmd_wasm_mdslink,_ctrmml_cmd_wasm_get_last_error,_ctrmml_cmd_wasm_get_track_data_json,_ctrmml_cmd_wasm_find_cursor_tick,_ctrmml_cmd_wasm_find_cursor_channel_json,_ctrmml_cmd_wasm_get_instrument_data_json,_ctrmml_cmd_wasm_get_quickrom_info,_ctrmml_cmd_wasm_get_mdslink_info,_preview_init,_preview_deinit,_preview_load_fm,_preview_load_psg,_preview_set_mode,_preview_note_on,_preview_note_on_attenuation,_preview_note_off,_preview_all_notes_off,_preview_set_fm_op_mask,_preview_set_mono"
     "SHELL:-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,stringToUTF8,lengthBytesUTF8,UTF8ToString,HEAPF32,HEAPU32,FS"
@@ -197,8 +196,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   # instantiate from bytes: no Emscripten JavaScript, a fixed memory and only
   # WASI imports. See src/ctrmml_player.cpp.
   set(CTRMML_PLAYER_LINK_OPTIONS
-    -fwasm-exceptions
-    "SHELL:-sWASM_LEGACY_EXCEPTIONS=1"
     "SHELL:-sSTANDALONE_WASM=1"
     --no-entry
     "SHELL:-sALLOW_MEMORY_GROWTH=0"
