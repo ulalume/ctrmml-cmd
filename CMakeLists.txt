@@ -40,7 +40,7 @@ include(FetchContent)
 FetchContent_Declare(
   ctrmml
   GIT_REPOSITORY https://github.com/ulalume/ctrmml.git
-  GIT_TAG 76b0670
+  GIT_TAG 2848a68
 )
 FetchContent_Declare(
   ymfm
@@ -268,6 +268,16 @@ else()
 
     add_test(NAME audio_render COMMAND audio-render-test)
     set_tests_properties(audio_render PROPERTIES TIMEOUT 20)
+
+    add_executable(song-blob-test tests/song_blob_test.cpp)
+    target_include_directories(song-blob-test PRIVATE ${CTRMML_CMD_INCLUDE_DIRS})
+    target_link_libraries(song-blob-test PRIVATE ctrmml-cmd-lib)
+
+    add_test(NAME song_blob
+      COMMAND song-blob-test
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/song_blob_fm_psg.mml"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/song_blob_pcm/song_blob_pcm.mml")
+    set_tests_properties(song_blob PROPERTIES TIMEOUT 60)
 
     add_executable(preview-volume-test tests/preview_volume_test.cpp)
     target_include_directories(preview-volume-test PRIVATE src)
