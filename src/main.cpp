@@ -632,7 +632,8 @@ int main(int argc, char **argv)
 				--start_line;
 			if (start_col > 0)
 				--start_col;
-			start_ticks = find_start_ticks(*compile.song, *compile.lines, start_line, start_col);
+			start_ticks = static_cast<uint32_t>(
+					find_cursor_tick(*compile.song, *compile.lines, start_line, start_col));
 		}
 
 		VgmAudioRenderer renderer(compile.song, start_ticks);
@@ -656,10 +657,9 @@ int main(int argc, char **argv)
 		// Hot-reload: spin a background reader that pulls subsequent
 		// UPDATE frames off stdin and hands them to the render loop via a
 		// mutex-guarded queue. The reader exits on EOF / END / parse
-		// error, after which `pending_done` flips and we stop trying.
+		// error.
 		std::mutex pending_mu;
 		std::optional<std::string> pending_mml;
-		std::atomic<bool> pending_done{false};
 		std::thread reader;
 		if (hot_reload)
 		{
@@ -675,7 +675,6 @@ int main(int argc, char **argv)
 						pending_mml = body;
 					}
 				}
-				pending_done.store(true);
 			});
 		}
 

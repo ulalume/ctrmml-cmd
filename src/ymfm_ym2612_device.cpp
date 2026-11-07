@@ -1,6 +1,5 @@
 #include "ymfm_ym2612_device.h"
 
-#include <algorithm>
 #include <ymfm_opn.h>
 
 class YmfmYm2612Interface : public ymfm::ymfm_interface
@@ -87,12 +86,6 @@ uint32_t YmfmYm2612Device::sample_rate() const
 	return chip->sample_rate(clock);
 }
 
-void YmfmYm2612Device::reset()
-{
-	chip->reset();
-	std::fill(std::begin(key_state), std::end(key_state), 0);
-}
-
 void YmfmYm2612Device::write(uint8_t offset, uint8_t data)
 {
 	// Track port 0 address register to detect key-on register (0x28) writes
@@ -154,11 +147,6 @@ void YmfmYm2612Device::set_mute_mask(uint32_t mask)
 void YmfmYm2612Device::set_chip_type(Ym2612ChipType chip_type_in)
 {
 	chip_type = chip_type_in;
-}
-
-Ym2612ChipType YmfmYm2612Device::get_chip_type() const
-{
-	return chip_type;
 }
 
 void YmfmYm2612Device::stream_update(void *info, UINT32 samples, DEV_SMPL **outputs)

@@ -197,11 +197,6 @@ void VgmAudioRenderer::set_ym2612_chip_type(Ym2612ChipType chip_type)
 	ym2612.set_ym2612_chip_type(chip_type);
 }
 
-Ym2612ChipType VgmAudioRenderer::get_ym2612_chip_type() const
-{
-	return ym2612_chip_type;
-}
-
 void VgmAudioRenderer::set_lowpass(bool enabled, double cutoff_hz)
 {
 	lowpass_enabled = enabled;

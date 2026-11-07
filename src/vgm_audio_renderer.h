@@ -70,7 +70,6 @@ public:
 
 	std::shared_ptr<Driver> &get_driver();
 	void setup_stream(uint32_t sample_rate);
-	uint32_t get_sample_rate() const { return static_cast<uint32_t>(sample_rate); }
 	//! Adds `count` rendered samples to `output`.
 	void get_sample(WAVE_32BS *output, int count);
 	void stop_playback();
@@ -78,7 +77,6 @@ public:
 	const std::string &last_error() const;
 	void set_mute_mask(int chip_id, uint32_t mask);
 	void set_ym2612_chip_type(Ym2612ChipType chip_type);
-	Ym2612ChipType get_ym2612_chip_type() const;
 	//! Low-pass every chip at its own native rate, before resampling.
 	void set_lowpass(bool enabled, double cutoff_hz);
 	//! Finish playback once PCM output ends: a DAC stream reaches the end of

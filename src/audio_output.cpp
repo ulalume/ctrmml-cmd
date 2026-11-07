@@ -65,11 +65,6 @@ void AudioOutput::stop()
 	running = false;
 }
 
-bool AudioOutput::is_running() const
-{
-	return running;
-}
-
 void AudioOutput::data_callback(ma_device *dev, void *output, const void *input, uint32_t frame_count)
 {
 	(void)input;

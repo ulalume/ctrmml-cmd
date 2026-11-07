@@ -65,15 +65,3 @@ int32_t find_cursor_tick(
 		const CompileLineMap &lines,
 		uint32_t line,
 		uint32_t col);
-
-uint32_t find_line_tick(
-		const Song &song,
-		const CompileLineMap &lines,
-		uint32_t line,
-		uint32_t col);
-
-uint32_t find_start_ticks(
-		const Song &song,
-		const CompileLineMap &lines,
-		uint32_t line,
-		uint32_t col);

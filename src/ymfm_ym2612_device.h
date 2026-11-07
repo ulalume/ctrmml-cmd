@@ -21,12 +21,10 @@ public:
 	~YmfmYm2612Device();
 
 	uint32_t sample_rate() const;
-	void reset();
 	void write(uint8_t offset, uint8_t data);
 	void render(DEV_SMPL **outputs, uint32_t samples);
 	void set_mute_mask(uint32_t mask);
 	void set_chip_type(Ym2612ChipType chip_type);
-	Ym2612ChipType get_chip_type() const;
 
 	static void stream_update(void *info, UINT32 samples, DEV_SMPL **outputs);
 

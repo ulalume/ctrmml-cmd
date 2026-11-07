@@ -179,7 +179,8 @@ extern "C" int ctrmml_cmd_wasm_start_playback(uint32_t sample_rate,
 	try
 	{
 		if (start_line > 0 || start_col > 0)
-			start_ticks = find_start_ticks(*g_compile.song, *g_compile.lines, start_line, start_col);
+			start_ticks = static_cast<uint32_t>(
+					find_cursor_tick(*g_compile.song, *g_compile.lines, start_line, start_col));
 	}
 	catch (std::exception &e)
 	{
@@ -280,8 +281,6 @@ extern "C" void ctrmml_cmd_wasm_set_stop_at_pcm_end(int enabled)
 
 extern "C" void ctrmml_cmd_wasm_stop_playback()
 {
-	if (g_renderer)
-		g_renderer->stop_playback();
 	g_renderer.reset();
 }
 

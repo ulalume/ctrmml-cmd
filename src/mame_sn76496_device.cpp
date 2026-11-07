@@ -56,12 +56,6 @@ uint32_t MameSn76496Device::sample_rate() const
 	return rate;
 }
 
-void MameSn76496Device::reset()
-{
-	if (chip_ptr)
-		devDef_SN76496_MAME.Reset(chip_ptr);
-}
-
 void MameSn76496Device::write(uint8_t data)
 {
 	if (!chip_ptr || !devDef_SN76496_MAME.rwFuncs)
