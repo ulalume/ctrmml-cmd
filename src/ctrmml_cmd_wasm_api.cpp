@@ -638,6 +638,37 @@ namespace
 
 		return -1;
 	}
+
+	struct TrackEventRange
+	{
+		unsigned long before_line;  // events added by the lines before the cursor line
+		unsigned long through_line; // the same plus those added by the cursor line
+	};
+
+	// CompileLineMap holds each track's event count after a line was read, for
+	// the lines that added to that track.
+	TrackEventRange track_events_around_line(const CompileLineMap &lines, int line, uint16_t track_id)
+	{
+		TrackEventRange range{0, 0};
+		auto line_it = lines.lower_bound(line);
+		for (auto prev = std::make_reverse_iterator(line_it); prev != lines.rend(); ++prev)
+		{
+			auto track_it = prev->second.find(track_id);
+			if (track_it != prev->second.end())
+			{
+				range.before_line = track_it->second;
+				break;
+			}
+		}
+		range.through_line = range.before_line;
+		if (line_it != lines.end() && line_it->first == line)
+		{
+			auto track_it = line_it->second.find(track_id);
+			if (track_it != line_it->second.end())
+				range.through_line = track_it->second;
+		}
+		return range;
+	}
 }
 
 extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, uint32_t col)
@@ -714,45 +745,19 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 		return g_channel_json.c_str();
 	}
 
-	// Determine the event scan boundary from CompileLineMap.
-	// line_map[track_id] = event count at the START of parsing that line,
-	// i.e. events with index < this value were added by earlier lines.
-	// Use the cursor line's own entry as the boundary so that events
-	// added ON the cursor line are excluded (they come after the cursor).
-	unsigned long scan_limit = 0;
-	{
-		auto bound_it = g_compile.lines->lower_bound(static_cast<int>(line));
-		bool found = false;
-		while (bound_it != g_compile.lines->end())
-		{
-			auto tk = bound_it->second.find(static_cast<uint16_t>(best_track_id));
-			if (tk != bound_it->second.end())
-			{
-				scan_limit = tk->second;
-				found = true;
-				break;
-			}
-			++bound_it;
-		}
-		if (!found)
-		{
-			// No later line; scan all events in the track
-			try
-			{
-				scan_limit = g_compile.song->get_track(best_track_id).get_event_count();
-			}
-			catch (std::exception &)
-			{
-				scan_limit = 0;
-			}
-		}
-	}
+	const auto range = track_events_around_line(*g_compile.lines, static_cast<int>(line),
+			static_cast<uint16_t>(best_track_id));
+	auto is_before_cursor = [&](const Event &event) {
+		const auto &ref = event.reference;
+		return ref && (ref->get_line() < static_cast<int>(line) ||
+				(ref->get_line() == static_cast<int>(line) && ref->get_column() < static_cast<int>(col)));
+	};
 
 	// Scan raw Track events to find:
-	// - active instrument (last Event::INS)
-	// - FM register overrides (Event::PLATFORM) — only BEFORE cursor line
-	// - fm3 flags — only BEFORE cursor line
-	// - last note (Event::NOTE) — including cursor line, up to cursor column
+	// - active instrument (last Event::INS) and last note (Event::NOTE), from
+	//   earlier lines and from the cursor line before the cursor column
+	// - FM register overrides (Event::PLATFORM) and fm3 flags, from earlier
+	//   lines only
 	const auto &ins_type_map = g_instrument_data->get_ins_type_map();
 	const auto &env_map = g_instrument_data->get_envelope_map_view();
 	const auto &data_bank = g_instrument_data->get_data_bank();
@@ -765,61 +770,25 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 	struct FmOverride { uint8_t reg; int value; bool relative; };
 	std::vector<FmOverride> pending_overrides;
 
-	// Determine extended scan limit (includes cursor line) for NOTE/INS
-	unsigned long extended_limit = 0;
-	{
-		auto upper_it = g_compile.lines->upper_bound(static_cast<int>(line));
-		bool found = false;
-		while (upper_it != g_compile.lines->end())
-		{
-			auto tk = upper_it->second.find(static_cast<uint16_t>(best_track_id));
-			if (tk != upper_it->second.end())
-			{
-				extended_limit = tk->second;
-				found = true;
-				break;
-			}
-			++upper_it;
-		}
-		if (!found)
-		{
-			try { extended_limit = g_compile.song->get_track(best_track_id).get_event_count(); }
-			catch (std::exception &) { extended_limit = 0; }
-		}
-	}
-
 	try
 	{
 		Track &track = g_compile.song->get_track(best_track_id);
 
-		for (unsigned long i = 0; i < extended_limit; ++i)
+		for (unsigned long i = 0; i < range.through_line; ++i)
 		{
 			Event &event = track.get_event(i);
-			bool before_cursor_line = (i < scan_limit);
+			bool before_cursor_line = (i < range.before_line);
 
 			if (event.type == Event::NOTE)
 			{
-				// Accept notes from cursor line only if their source is before cursor col
-				if (before_cursor_line)
-				{
+				if (before_cursor_line || is_before_cursor(event))
 					last_note = event.param;
-				}
-				else
-				{
-					auto ref = event.reference;
-					if (ref && (ref->get_line() < static_cast<int>(line) ||
-								(ref->get_line() == static_cast<int>(line) &&
-								 ref->get_column() < static_cast<int>(col))))
-					{
-						last_note = event.param;
-					}
-				}
 			}
 			else if (event.type == Event::INS)
 			{
-				ins_id = static_cast<uint16_t>(event.param);
-				if (before_cursor_line)
+				if (before_cursor_line || is_before_cursor(event))
 				{
+					ins_id = static_cast<uint16_t>(event.param);
 					pending_overrides.clear();
 					fm3_flags = -1;
 				}
