@@ -15,7 +15,6 @@ namespace
 {
 	constexpr int kMdsdrvRomNoteMin = 0;
 	constexpr int kMdsdrvRomNoteExclusiveMax = 94; // SLR - NOTE = 0xe0 - 0x82
-	constexpr int kMegadriveChannelTrackCount = 16;
 
 	ctrmml_cmd::CheckMessage make_message_from_ref(
 			const std::shared_ptr<InputRef> &ref,
@@ -94,7 +93,7 @@ namespace
 	{
 		for (auto &[track_id, track] : song.get_track_map())
 		{
-			if (track_id >= kMegadriveChannelTrackCount)
+			if (track_id >= kChannelTrackCount)
 				continue;
 			if (drum_subroutine_tracks.count(static_cast<int16_t>(track_id)))
 				continue;
@@ -179,7 +178,7 @@ namespace
 			if (track_it == event_track_ids.end())
 				return;
 			uint16_t event_track_id = track_it->second;
-			bool covered_by_direct_scan = event_track_id < kMegadriveChannelTrackCount
+			bool covered_by_direct_scan = event_track_id < kChannelTrackCount
 					&& !drum_subroutine_tracks.count(static_cast<int16_t>(event_track_id));
 			if (covered_by_direct_scan || !reported_events.insert(track_event).second)
 				return;
@@ -236,7 +235,7 @@ namespace ctrmml_cmd
 		std::set<const Event *> reported_events;
 		for (auto &[track_id, track] : song.get_track_map())
 		{
-			if (track_id >= kMegadriveChannelTrackCount)
+			if (track_id >= kChannelTrackCount)
 				break;
 			if (drum_subroutine_tracks.count(static_cast<int16_t>(track_id)))
 				continue;

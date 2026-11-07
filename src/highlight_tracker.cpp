@@ -134,8 +134,6 @@ std::vector<HighlightPosition> collect_highlights(
 
 namespace
 {
-	constexpr int kMaxChannels = 16;
-
 	struct EditorTickInfo
 	{
 		uint32_t line_tick = 0;
@@ -248,7 +246,7 @@ namespace
 		const auto &line_map = line_it->second;
 		for (const auto &track_pos : line_map)
 		{
-			if (track_pos.first >= kMaxChannels)
+			if (track_pos.first >= kChannelTrackCount)
 				continue;
 
 			try

@@ -24,7 +24,6 @@
 
 namespace
 {
-	constexpr int kMaxChannels = 16;
 	DcBlocker g_dc_blocker;
 	bool g_lowpass_enabled = true;
 	double g_lowpass_cutoff = LowPassFilter::kDefaultCutoffHz;
@@ -662,7 +661,7 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 	int best_event_col = -1;
 	for (const auto &[track_id, end_pos] : line_map)
 	{
-		if (track_id >= kMaxChannels)
+		if (track_id >= kChannelTrackCount)
 			continue;
 		try
 		{
@@ -696,7 +695,7 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 	{
 		for (const auto &[track_id, end_pos] : line_map)
 		{
-			if (track_id >= kMaxChannels)
+			if (track_id >= kChannelTrackCount)
 				continue;
 			best_track_id = track_id;
 			break;

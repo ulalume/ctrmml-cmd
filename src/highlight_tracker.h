@@ -9,6 +9,10 @@
 #include "track.h"
 #include "song.h"
 
+//! Track IDs below this are MDSDRV channels (6 FM, 4 PSG and 6 more);
+//! higher IDs are subroutines and macros with their own timelines.
+constexpr int kChannelTrackCount = 16;
+
 using LineTrackPositionMap = std::map<uint16_t, unsigned long>;
 using CompileLineMap = std::map<int, LineTrackPositionMap>;
 
