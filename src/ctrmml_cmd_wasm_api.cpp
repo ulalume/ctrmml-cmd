@@ -1,41 +1,34 @@
 #include "ctrmml_cmd_wasm_api.h"
 
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <new>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include "ctrmml_cmd.h"
-#include "dc_blocker.h"
+#include "exception_text.h"
 #include "highlight_tracker.h"
 #include "input.h"
-#include "lowpass_filter.h"
 #include "mdslink_tool.h"
 #include "mml_compile.h"
 #include "platform/mdsdrv.h"
-#include "preview_synth.h"
 #include "rom_builder.h"
 #include "song_blob.h"
 #include "template_rom_data.h"
-#include "vgm_audio_renderer.h"
 #include "vgm_export.h"
 #include "wav_export.h"
 
 namespace
 {
-	DcBlocker g_dc_blocker;
-	bool g_lowpass_enabled = true;
-	double g_lowpass_cutoff = LowPassFilter::kDefaultCutoffHz;
 	Ym2612ChipType g_ym2612_chip_type = Ym2612ChipType::Ym2612;
 
 	CompileResult g_compile;
-	std::unique_ptr<VgmAudioRenderer> g_renderer;
 	std::unique_ptr<MDSDRV_Data> g_instrument_data;
 	bool g_instrument_data_stale = false;
-	std::unique_ptr<PreviewSynth> g_preview;
-	std::vector<uint8_t> g_playback_song;
 
 	std::string g_last_error;
 	std::string g_check_json_result;
@@ -50,27 +43,6 @@ namespace
 	void set_error(const std::string &msg)
 	{
 		g_last_error = msg;
-	}
-
-	/** Build g_renderer at `start_ticks` with `sample_rate`. On failure sets
-	 *  g_last_error, clears g_renderer, and returns false. */
-	bool build_renderer(uint32_t start_ticks, uint32_t sample_rate)
-	{
-		try
-		{
-			g_renderer = std::make_unique<VgmAudioRenderer>(g_compile.song, start_ticks, false);
-			g_renderer->set_ym2612_chip_type(g_ym2612_chip_type);
-			g_renderer->setup_stream(sample_rate);
-			g_renderer->set_lowpass(g_lowpass_enabled, g_lowpass_cutoff);
-			g_dc_blocker.reset();
-			return true;
-		}
-		catch (std::exception &e)
-		{
-			set_error(e.what());
-			g_renderer.reset();
-			return false;
-		}
 	}
 
 	/** Instrument tables of g_compile.song for the JSON queries, read on the
@@ -163,102 +135,9 @@ extern "C" const char *ctrmml_cmd_wasm_check_json(const char *text,
 // Playback
 // ---------------------------------------------------------------------------
 
-extern "C" int ctrmml_cmd_wasm_start_playback(uint32_t sample_rate,
-															uint32_t start_line,
-															uint32_t start_col)
-{
-	g_renderer.reset();
-	g_last_error.clear();
-
-	if (!g_compile.song || !g_compile.lines)
-	{
-		set_error("no compiled song");
-		return 1;
-	}
-
-	uint32_t start_ticks = 0;
-	try
-	{
-		if (start_line > 0 || start_col > 0)
-			start_ticks = static_cast<uint32_t>(
-					find_cursor_tick(*g_compile.song, *g_compile.lines, start_line, start_col));
-	}
-	catch (std::exception &e)
-	{
-		set_error(e.what());
-		return 1;
-	}
-
-	return build_renderer(start_ticks, sample_rate) ? 0 : 1;
-}
-
-extern "C" int ctrmml_cmd_wasm_start_playback_at_tick(uint32_t sample_rate, uint32_t start_ticks)
-{
-	g_renderer.reset();
-	g_last_error.clear();
-
-	if (!g_compile.song)
-	{
-		set_error("no compiled song");
-		return 1;
-	}
-
-	return build_renderer(start_ticks, sample_rate) ? 0 : 1;
-}
-
-extern "C" int ctrmml_cmd_wasm_compile_and_relink(const char *text, const char *base_dir)
+extern "C" uint8_t *ctrmml_cmd_wasm_pack_song(uint32_t *size)
 {
 	g_last_error.clear();
-
-	if (!text || !base_dir)
-	{
-		set_error("invalid input");
-		return 1;
-	}
-
-	uint32_t current_tick = 0;
-	bool had_renderer = false;
-	if (g_renderer && !g_renderer->is_finished())
-	{
-		auto &driver = g_renderer->get_driver();
-		if (driver)
-		{
-			current_tick = driver->get_player_ticks();
-			had_renderer = true;
-		}
-	}
-
-	// On compile error leave existing state untouched so the renderer keeps
-	// playing the previously-compiled song.
-	CompileResult new_compile = compile_mml_text(text, base_dir, "input.mml");
-	if (!new_compile.song)
-	{
-		set_error(new_compile.error);
-		return 1;
-	}
-
-	g_compile = std::move(new_compile);
-	g_instrument_data_stale = true;
-
-	if (had_renderer)
-	{
-		try
-		{
-			g_renderer->relink_song(g_compile.song, current_tick);
-		}
-		catch (std::exception &e)
-		{
-			set_error(e.what());
-			g_renderer.reset();
-			return 1;
-		}
-	}
-
-	return 0;
-}
-
-extern "C" const uint8_t *ctrmml_cmd_wasm_serialize_song(uint32_t *size)
-{
 	if (size)
 		*size = 0;
 	if (!g_compile.song)
@@ -268,96 +147,25 @@ extern "C" const uint8_t *ctrmml_cmd_wasm_serialize_song(uint32_t *size)
 	}
 	try
 	{
-		g_playback_song = serialize_song(*g_compile.song, true);
+		const std::vector<uint8_t> packed = serialize_song(*g_compile.song, true);
+		auto *bytes = static_cast<uint8_t *>(std::malloc(packed.size()));
+		if (!bytes)
+			throw std::bad_alloc();
+		std::memcpy(bytes, packed.data(), packed.size());
+		if (size)
+			*size = static_cast<uint32_t>(packed.size());
+		return bytes;
 	}
-	catch (std::exception &e)
+	catch (...)
 	{
-		set_error(e.what());
+		set_error(current_exception_text());
 		return nullptr;
 	}
-	if (size)
-		*size = static_cast<uint32_t>(g_playback_song.size());
-	return g_playback_song.data();
-}
-
-extern "C" void ctrmml_cmd_wasm_set_mute_mask(int32_t chip_id, uint32_t mask)
-{
-	if (g_renderer)
-		g_renderer->set_mute_mask(chip_id, mask);
-}
-
-extern "C" void ctrmml_cmd_wasm_set_ym2612_chip_type(int chip_type)
-{
-	g_ym2612_chip_type = chip_type == static_cast<int>(Ym2612ChipType::Ym3438)
-			? Ym2612ChipType::Ym3438
-			: Ym2612ChipType::Ym2612;
-	if (g_renderer)
-		g_renderer->set_ym2612_chip_type(g_ym2612_chip_type);
-	if (g_preview)
-		g_preview->set_ym2612_chip_type(g_ym2612_chip_type);
-}
-
-extern "C" void ctrmml_cmd_wasm_set_stop_at_pcm_end(int enabled)
-{
-	if (g_renderer)
-		g_renderer->set_stop_at_pcm_end(enabled != 0);
-}
-
-extern "C" void ctrmml_cmd_wasm_stop_playback()
-{
-	g_renderer.reset();
-}
-
-extern "C" int ctrmml_cmd_wasm_is_playing()
-{
-	if (!g_renderer)
-		return 0;
-	return g_renderer->is_finished() ? 0 : 1;
-}
-
-extern "C" int ctrmml_cmd_wasm_render_audio(float *output, int frames)
-{
-	if (!output || frames <= 0)
-		return 0;
-
-	bool has_main = g_renderer && !g_renderer->is_finished();
-	bool has_preview = g_preview && g_preview->is_active();
-
-	if (!has_main && !has_preview)
-		return 0;
-
-	static std::vector<WAVE_32BS> scratch;
-	if (static_cast<int>(scratch.size()) < frames)
-		scratch.resize(frames);
-	std::memset(scratch.data(), 0, frames * sizeof(WAVE_32BS));
-
-	if (has_main)
-	{
-		g_renderer->get_sample(scratch.data(), frames);
-		if (g_renderer->is_finished() && !g_renderer->last_error().empty())
-			set_error(g_renderer->last_error());
-	}
-
-	if (has_preview)
-		g_preview->render(scratch.data(), frames);
-
-	for (int i = 0; i < frames; ++i)
-		g_dc_blocker.to_output(scratch[i].L, scratch[i].R, output[i * 2 + 0], output[i * 2 + 1]);
-
-	return frames;
 }
 
 // ---------------------------------------------------------------------------
-// Tick tracking + highlights
+// Highlights
 // ---------------------------------------------------------------------------
-
-extern "C" uint32_t ctrmml_cmd_wasm_get_player_ticks()
-{
-	if (!g_renderer)
-		return 0;
-	auto &driver = g_renderer->get_driver();
-	return driver ? driver->get_player_ticks() : 0;
-}
 
 extern "C" uint32_t ctrmml_cmd_wasm_get_highlights(uint32_t ticks,
 																											uint32_t *lines,
@@ -407,6 +215,13 @@ extern "C" int ctrmml_cmd_wasm_export_vgm(const char *text,
 		return 1;
 	}
 	return 0;
+}
+
+extern "C" void ctrmml_cmd_wasm_set_ym2612_chip_type(int chip_type)
+{
+	g_ym2612_chip_type = chip_type == static_cast<int>(Ym2612ChipType::Ym3438)
+			? Ym2612ChipType::Ym3438
+			: Ym2612ChipType::Ym2612;
 }
 
 extern "C" int ctrmml_cmd_wasm_export_wav(const char *text,
@@ -909,90 +724,4 @@ extern "C" const char *ctrmml_cmd_wasm_get_instrument_data_json(uint16_t ins_id)
 	os << '}';
 	g_ins_json = os.str();
 	return g_ins_json.c_str();
-}
-
-// ---------------------------------------------------------------------------
-// Audio low-pass filter
-// ---------------------------------------------------------------------------
-
-extern "C" void ctrmml_cmd_wasm_set_lowpass_filter(int enabled, float cutoff_hz)
-{
-	g_lowpass_enabled = (enabled != 0);
-	if (cutoff_hz > 0.0f)
-		g_lowpass_cutoff = static_cast<double>(cutoff_hz);
-	if (g_renderer)
-		g_renderer->set_lowpass(g_lowpass_enabled, g_lowpass_cutoff);
-	if (g_preview)
-		g_preview->set_lowpass(g_lowpass_enabled, g_lowpass_cutoff);
-}
-
-// Preview synth
-// ---------------------------------------------------------------------------
-
-extern "C" void preview_init(uint32_t sample_rate)
-{
-	g_preview = std::make_unique<PreviewSynth>();
-	g_preview->set_ym2612_chip_type(g_ym2612_chip_type);
-	g_preview->set_lowpass(g_lowpass_enabled, g_lowpass_cutoff);
-	g_preview->init(sample_rate);
-	g_dc_blocker.reset();
-}
-
-extern "C" void preview_deinit()
-{
-	g_preview.reset();
-}
-
-extern "C" void preview_load_fm(const uint8_t *data, int len)
-{
-	if (g_preview)
-		g_preview->load_fm(data, len);
-}
-
-extern "C" void preview_load_psg(const uint8_t *data, int len)
-{
-	if (g_preview)
-		g_preview->load_psg(data, len);
-}
-
-extern "C" void preview_set_mode(int mode)
-{
-	if (g_preview)
-		g_preview->set_mode(mode);
-}
-
-extern "C" void preview_note_on(uint8_t midi_note, uint8_t velocity)
-{
-	if (g_preview)
-		g_preview->note_on(midi_note, velocity);
-}
-
-extern "C" void preview_note_on_attenuation(uint8_t midi_note, uint8_t tl_attenuation)
-{
-	if (g_preview)
-		g_preview->note_on_attenuation(midi_note, tl_attenuation);
-}
-
-extern "C" void preview_note_off(uint8_t midi_note)
-{
-	if (g_preview)
-		g_preview->note_off(midi_note);
-}
-
-extern "C" void preview_set_fm_op_mask(uint8_t mask)
-{
-	if (g_preview)
-		g_preview->set_fm_op_mask(mask);
-}
-
-extern "C" void preview_set_mono(int mono)
-{
-	if (g_preview)
-		g_preview->set_mono(mono != 0);
-}
-
-extern "C" void preview_all_notes_off()
-{
-	if (g_preview)
-		g_preview->all_notes_off();
 }

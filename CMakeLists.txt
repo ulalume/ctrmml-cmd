@@ -184,8 +184,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
 
   target_link_options(ctrmml-cmd-wasm PRIVATE
     "SHELL:-sALLOW_MEMORY_GROWTH=1"
-    "SHELL:-sEXPORTED_FUNCTIONS=_malloc,_free,_ctrmml_cmd_wasm_compile,_ctrmml_cmd_wasm_get_compile_error,_ctrmml_cmd_wasm_check_json,_ctrmml_cmd_wasm_start_playback,_ctrmml_cmd_wasm_start_playback_at_tick,_ctrmml_cmd_wasm_stop_playback,_ctrmml_cmd_wasm_is_playing,_ctrmml_cmd_wasm_render_audio,_ctrmml_cmd_wasm_set_mute_mask,_ctrmml_cmd_wasm_set_ym2612_chip_type,_ctrmml_cmd_wasm_set_lowpass_filter,_ctrmml_cmd_wasm_set_stop_at_pcm_end,_ctrmml_cmd_wasm_compile_and_relink,_ctrmml_cmd_wasm_serialize_song,_ctrmml_cmd_wasm_get_player_ticks,_ctrmml_cmd_wasm_get_highlights,_ctrmml_cmd_wasm_export_vgm,_ctrmml_cmd_wasm_export_wav,_ctrmml_cmd_wasm_quickrom,_ctrmml_cmd_wasm_mdslink,_ctrmml_cmd_wasm_get_last_error,_ctrmml_cmd_wasm_get_track_data_json,_ctrmml_cmd_wasm_find_cursor_tick,_ctrmml_cmd_wasm_find_cursor_channel_json,_ctrmml_cmd_wasm_get_instrument_data_json,_ctrmml_cmd_wasm_get_quickrom_info,_ctrmml_cmd_wasm_get_mdslink_info,_preview_init,_preview_deinit,_preview_load_fm,_preview_load_psg,_preview_set_mode,_preview_note_on,_preview_note_on_attenuation,_preview_note_off,_preview_all_notes_off,_preview_set_fm_op_mask,_preview_set_mono"
-    "SHELL:-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,stringToUTF8,lengthBytesUTF8,UTF8ToString,HEAPF32,HEAPU32,FS"
+    "SHELL:-sEXPORTED_FUNCTIONS=_malloc,_free,_ctrmml_cmd_wasm_compile,_ctrmml_cmd_wasm_get_compile_error,_ctrmml_cmd_wasm_check_json,_ctrmml_cmd_wasm_pack_song,_ctrmml_cmd_wasm_set_ym2612_chip_type,_ctrmml_cmd_wasm_get_highlights,_ctrmml_cmd_wasm_export_vgm,_ctrmml_cmd_wasm_export_wav,_ctrmml_cmd_wasm_quickrom,_ctrmml_cmd_wasm_mdslink,_ctrmml_cmd_wasm_get_last_error,_ctrmml_cmd_wasm_get_track_data_json,_ctrmml_cmd_wasm_find_cursor_tick,_ctrmml_cmd_wasm_find_cursor_channel_json,_ctrmml_cmd_wasm_get_instrument_data_json,_ctrmml_cmd_wasm_get_quickrom_info,_ctrmml_cmd_wasm_get_mdslink_info"
+    "SHELL:-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,stringToUTF8,lengthBytesUTF8,UTF8ToString,HEAPU8,HEAPF32,HEAPU32,FS"
     "SHELL:-sENVIRONMENT=web"
     "SHELL:-sMODULARIZE=1"
     "SHELL:-sEXPORT_NAME=createCtrmmlModule"
@@ -323,6 +323,13 @@ else()
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/channel_macro_repro.mml"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/channel_nested_loop.mml")
     set_tests_properties(playback_song PROPERTIES TIMEOUT 60)
+
+    add_executable(playback-test tests/playback_test.cpp)
+    target_include_directories(playback-test PRIVATE ${CTRMML_CMD_INCLUDE_DIRS})
+    target_link_libraries(playback-test PRIVATE ctrmml-cmd-lib)
+
+    add_test(NAME playback COMMAND playback-test)
+    set_tests_properties(playback PROPERTIES TIMEOUT 20)
 
     add_executable(preview-volume-test tests/preview_volume_test.cpp)
     target_include_directories(preview-volume-test PRIVATE src)
