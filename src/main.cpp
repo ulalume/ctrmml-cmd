@@ -17,6 +17,7 @@
 
 #include "audio_output.h"
 #include "ctrmml_cmd.h"
+#include "exception_text.h"
 #include "highlight_tracker.h"
 #include "mdslink_tool.h"
 #include "mml_compile.h"
@@ -692,9 +693,9 @@ int main(int argc, char **argv)
 							renderer.relink_song(fresh.song, cur);
 							compile = std::move(fresh);
 						}
-						catch (std::exception &e)
+						catch (...)
 						{
-							std::cerr << "hot-reload: relink failed: " << e.what() << "\n";
+							std::cerr << "hot-reload: relink failed: " << current_exception_text() << "\n";
 						}
 					}
 					else
