@@ -117,6 +117,12 @@ emcmake cmake -S . -B build-wasm -DCMAKE_BUILD_TYPE=Release
 cmake --build build-wasm
 ```
 
+The wasm build makes `ctrmml_cmd.js`/`ctrmml_cmd.wasm` and `ctrmml_player.wasm`:
+the song player and preview synth alone, for an AudioWorklet, playing songs
+from `ctrmml_cmd_wasm_serialize_song()` (see `src/ctrmml_player.cpp`).
+`tests/player/run.sh [<file.mml or dir>...]` builds both and checks that they
+render the same.
+
 ## External
 
 This project is used here:

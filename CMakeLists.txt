@@ -10,9 +10,10 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Emscripten exception handling — must be set BEFORE FetchContent so that
-# dependent libraries (ctrmml) are compiled with the same ABI.
+# dependent libraries (ctrmml) are compiled with the same ABI. Native wasm
+# exceptions in the legacy encoding, which Safari supports from 15.2.
 if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
-  add_compile_options(-fexceptions)
+  add_compile_options(-fwasm-exceptions "SHELL:-sWASM_LEGACY_EXCEPTIONS=1")
 endif()
 
 set(CTRMML_TEMPLATE_ROM "${CMAKE_CURRENT_SOURCE_DIR}/assets/template.bin")
@@ -77,6 +78,14 @@ foreach(tgt mmlc mdslink)
   endif()
 endforeach()
 
+# Song playback and the preview synth, without the compiler, checks and exports.
+set(CTRMML_CMD_PLAYBACK_SOURCES
+  src/vgm_audio_renderer.cpp
+  src/ymfm_ym2612_device.cpp
+  src/mame_sn76496_device.cpp
+  src/preview_synth.cpp
+  src/playback_song.cpp)
+
 set(CTRMML_CMD_CORE_SOURCES
   src/binary_file.cpp
   src/check_channel_events.cpp
@@ -87,11 +96,8 @@ set(CTRMML_CMD_CORE_SOURCES
   src/mdslink_tool.cpp
   src/rom_builder.cpp
   "${CTRMML_TEMPLATE_SRC}"
-  src/vgm_audio_renderer.cpp
   src/vgm_export.cpp
   src/wav_export.cpp
-  src/ymfm_ym2612_device.cpp
-  src/mame_sn76496_device.cpp
   src/ctrmml_cmd.cpp
   src/ctrmml_cmd_c_api.cpp)
 
@@ -118,7 +124,18 @@ add_library(ymfm-core STATIC
   src/ymfm_explicit_inst.cpp)
 target_include_directories(ymfm-core PUBLIC ${ymfm_SOURCE_DIR}/src)
 
+add_library(ctrmml-cmd-playback STATIC ${CTRMML_CMD_PLAYBACK_SOURCES})
+target_include_directories(ctrmml-cmd-playback PUBLIC ${CTRMML_CMD_INCLUDE_DIRS})
+target_link_libraries(ctrmml-cmd-playback PRIVATE
+  ctrmml
+  ymfm-core
+  ctrmml-cmd-csources)
+if(MSVC)
+  target_compile_options(ctrmml-cmd-playback PRIVATE /FIstring)
+endif()
+
 set(CTRMML_CMD_LINK_LIBS
+  ctrmml-cmd-playback
   ctrmml
   ymfm-core
   ctrmml-cmd-csources)
@@ -145,9 +162,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
     endif()
   endif()
 
-  add_library(ctrmml-cmd-lib STATIC
-    ${CTRMML_CMD_CORE_SOURCES}
-    src/preview_synth.cpp)
+  add_library(ctrmml-cmd-lib STATIC ${CTRMML_CMD_CORE_SOURCES})
 
   target_include_directories(ctrmml-cmd-lib PUBLIC ${CTRMML_CMD_INCLUDE_DIRS})
   target_link_libraries(ctrmml-cmd-lib PRIVATE ${CTRMML_CMD_LINK_LIBS})
@@ -167,15 +182,49 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   endif()
 
   target_link_options(ctrmml-cmd-wasm PRIVATE
-    -fexceptions
+    -fwasm-exceptions
+    "SHELL:-sWASM_LEGACY_EXCEPTIONS=1"
     "SHELL:-sALLOW_MEMORY_GROWTH=1"
-    "SHELL:-sEXPORTED_FUNCTIONS=_malloc,_free,_ctrmml_cmd_wasm_compile,_ctrmml_cmd_wasm_get_compile_error,_ctrmml_cmd_wasm_check_json,_ctrmml_cmd_wasm_start_playback,_ctrmml_cmd_wasm_start_playback_at_tick,_ctrmml_cmd_wasm_stop_playback,_ctrmml_cmd_wasm_is_playing,_ctrmml_cmd_wasm_render_audio,_ctrmml_cmd_wasm_set_mute_mask,_ctrmml_cmd_wasm_set_ym2612_chip_type,_ctrmml_cmd_wasm_set_lowpass_filter,_ctrmml_cmd_wasm_set_stop_at_pcm_end,_ctrmml_cmd_wasm_compile_and_relink,_ctrmml_cmd_wasm_get_player_ticks,_ctrmml_cmd_wasm_get_highlights,_ctrmml_cmd_wasm_export_vgm,_ctrmml_cmd_wasm_export_wav,_ctrmml_cmd_wasm_quickrom,_ctrmml_cmd_wasm_mdslink,_ctrmml_cmd_wasm_get_last_error,_ctrmml_cmd_wasm_get_track_data_json,_ctrmml_cmd_wasm_find_cursor_tick,_ctrmml_cmd_wasm_find_cursor_channel_json,_ctrmml_cmd_wasm_get_instrument_data_json,_ctrmml_cmd_wasm_get_quickrom_info,_ctrmml_cmd_wasm_get_mdslink_info,_preview_init,_preview_deinit,_preview_load_fm,_preview_load_psg,_preview_set_mode,_preview_note_on,_preview_note_on_attenuation,_preview_note_off,_preview_all_notes_off,_preview_set_fm_op_mask,_preview_set_mono"
+    "SHELL:-sEXPORTED_FUNCTIONS=_malloc,_free,_ctrmml_cmd_wasm_compile,_ctrmml_cmd_wasm_get_compile_error,_ctrmml_cmd_wasm_check_json,_ctrmml_cmd_wasm_start_playback,_ctrmml_cmd_wasm_start_playback_at_tick,_ctrmml_cmd_wasm_stop_playback,_ctrmml_cmd_wasm_is_playing,_ctrmml_cmd_wasm_render_audio,_ctrmml_cmd_wasm_set_mute_mask,_ctrmml_cmd_wasm_set_ym2612_chip_type,_ctrmml_cmd_wasm_set_lowpass_filter,_ctrmml_cmd_wasm_set_stop_at_pcm_end,_ctrmml_cmd_wasm_compile_and_relink,_ctrmml_cmd_wasm_serialize_song,_ctrmml_cmd_wasm_get_player_ticks,_ctrmml_cmd_wasm_get_highlights,_ctrmml_cmd_wasm_export_vgm,_ctrmml_cmd_wasm_export_wav,_ctrmml_cmd_wasm_quickrom,_ctrmml_cmd_wasm_mdslink,_ctrmml_cmd_wasm_get_last_error,_ctrmml_cmd_wasm_get_track_data_json,_ctrmml_cmd_wasm_find_cursor_tick,_ctrmml_cmd_wasm_find_cursor_channel_json,_ctrmml_cmd_wasm_get_instrument_data_json,_ctrmml_cmd_wasm_get_quickrom_info,_ctrmml_cmd_wasm_get_mdslink_info,_preview_init,_preview_deinit,_preview_load_fm,_preview_load_psg,_preview_set_mode,_preview_note_on,_preview_note_on_attenuation,_preview_note_off,_preview_all_notes_off,_preview_set_fm_op_mask,_preview_set_mono"
     "SHELL:-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,stringToUTF8,lengthBytesUTF8,UTF8ToString,HEAPF32,HEAPU32,FS"
     "SHELL:-sENVIRONMENT=web"
     "SHELL:-sMODULARIZE=1"
     "SHELL:-sEXPORT_NAME=createCtrmmlModule"
     "SHELL:-sASSERTIONS=${_CTRMML_WASM_ASSERTIONS}"
     "SHELL:-sSTRICT=1")
+
+  # The song player and preview synth alone, for an AudioWorkletProcessor to
+  # instantiate from bytes: no Emscripten JavaScript, a fixed memory and only
+  # WASI imports. See src/ctrmml_player.cpp.
+  set(CTRMML_PLAYER_LINK_OPTIONS
+    -fwasm-exceptions
+    "SHELL:-sWASM_LEGACY_EXCEPTIONS=1"
+    "SHELL:-sSTANDALONE_WASM=1"
+    --no-entry
+    "SHELL:-sALLOW_MEMORY_GROWTH=0"
+    "SHELL:-sSTACK_SIZE=262144")
+
+  add_executable(ctrmml-player src/ctrmml_player.cpp)
+  target_link_libraries(ctrmml-player PRIVATE ctrmml-cmd-playback)
+  set_target_properties(ctrmml-player PROPERTIES
+    OUTPUT_NAME "ctrmml_player"
+    SUFFIX ".wasm")
+  target_link_options(ctrmml-player PRIVATE
+    ${CTRMML_PLAYER_LINK_OPTIONS}
+    "SHELL:-sINITIAL_MEMORY=33554432")
+
+  # The player with room to spare and an export of its heap's high-water
+  # mark, for tests/player/parity.mjs to measure the memory it needs.
+  add_executable(ctrmml-player-heap-probe EXCLUDE_FROM_ALL
+    src/ctrmml_player.cpp
+    tests/player/heap_probe.cpp)
+  target_link_libraries(ctrmml-player-heap-probe PRIVATE ctrmml-cmd-playback)
+  set_target_properties(ctrmml-player-heap-probe PROPERTIES
+    OUTPUT_NAME "ctrmml_player_heap_probe"
+    SUFFIX ".wasm")
+  target_link_options(ctrmml-player-heap-probe PRIVATE
+    ${CTRMML_PLAYER_LINK_OPTIONS}
+    "SHELL:-sINITIAL_MEMORY=268435456")
 
 else()
   # ---------- Native build ----------
@@ -248,8 +297,7 @@ else()
 
     add_executable(wasm-export-api-test
       tests/wasm_export_api_test.cpp
-      src/ctrmml_cmd_wasm_api.cpp
-      src/preview_synth.cpp)
+      src/ctrmml_cmd_wasm_api.cpp)
     target_include_directories(wasm-export-api-test PRIVATE ${CTRMML_CMD_INCLUDE_DIRS})
     target_link_libraries(wasm-export-api-test PRIVATE ctrmml-cmd-lib)
 
@@ -260,9 +308,7 @@ else()
         "${CMAKE_CURRENT_BINARY_DIR}/export-path-test-wasm-api")
     set_tests_properties(export_paths_wasm_api PROPERTIES TIMEOUT 20)
 
-    add_executable(audio-render-test
-      tests/audio_render_test.cpp
-      src/preview_synth.cpp)
+    add_executable(audio-render-test tests/audio_render_test.cpp)
     target_include_directories(audio-render-test PRIVATE ${CTRMML_CMD_INCLUDE_DIRS})
     target_link_libraries(audio-render-test PRIVATE ctrmml-cmd-lib)
 
@@ -278,6 +324,18 @@ else()
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/song_blob_fm_psg.mml"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/song_blob_pcm/song_blob_pcm.mml")
     set_tests_properties(song_blob PROPERTIES TIMEOUT 60)
+
+    add_executable(playback-song-test tests/playback_song_test.cpp)
+    target_include_directories(playback-song-test PRIVATE ${CTRMML_CMD_INCLUDE_DIRS})
+    target_link_libraries(playback-song-test PRIVATE ctrmml-cmd-lib)
+
+    add_test(NAME playback_song
+      COMMAND playback-song-test
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/song_blob_fm_psg.mml"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/song_blob_pcm/song_blob_pcm.mml"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/channel_macro_repro.mml"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/channel_nested_loop.mml")
+    set_tests_properties(playback_song PROPERTIES TIMEOUT 60)
 
     add_executable(preview-volume-test tests/preview_volume_test.cpp)
     target_include_directories(preview-volume-test PRIVATE src)
