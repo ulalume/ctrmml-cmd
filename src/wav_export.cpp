@@ -153,7 +153,7 @@ namespace
 		return {true, {}};
 	}
 
-	ExportResult safe_export_wav_song(const std::shared_ptr<Song> &song, const std::string &out_path,
+	ExportResult write_wav_song(const std::shared_ptr<Song> &song, const std::string &out_path,
 			Ym2612ChipType chip_type)
 	{
 		std::vector<uint8_t> wav;
@@ -190,7 +190,7 @@ ExportResult export_wav(const std::string &in_path, const std::string &out_path,
 	auto compile = compile_mml_file(in_path);
 	if (!compile.song)
 		return {false, compile.error};
-	return safe_export_wav_song(compile.song, out_path, chip_type);
+	return write_wav_song(compile.song, out_path, chip_type);
 }
 
 ExportResult export_wav_text(const std::string &text, const std::string &base_path,
@@ -200,5 +200,5 @@ ExportResult export_wav_text(const std::string &text, const std::string &base_pa
 	auto compile = compile_mml_text(text, base_path, display_name);
 	if (!compile.song)
 		return {false, compile.error};
-	return safe_export_wav_song(compile.song, out_path, chip_type);
+	return write_wav_song(compile.song, out_path, chip_type);
 }
