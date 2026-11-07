@@ -719,8 +719,7 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 	// Scan raw Track events to find:
 	// - active instrument (last Event::INS) and last note (Event::NOTE), from
 	//   earlier lines and from the cursor line before the cursor column
-	// - FM register overrides (Event::PLATFORM) and fm3 flags, from earlier
-	//   lines only
+	// - FM register overrides (Event::PLATFORM) and fm3 flags, likewise
 	const auto &ins_type_map = ins_data->get_ins_type_map();
 	const auto &env_map = ins_data->get_envelope_map_view();
 	const auto &data_bank = ins_data->get_data_bank();
@@ -756,7 +755,7 @@ extern "C" const char *ctrmml_cmd_wasm_find_cursor_channel_json(uint32_t line, u
 					fm3_flags = -1;
 				}
 			}
-			else if (event.type == Event::PLATFORM && before_cursor_line)
+			else if (event.type == Event::PLATFORM && (before_cursor_line || is_before_cursor(event)))
 			{
 				try
 				{

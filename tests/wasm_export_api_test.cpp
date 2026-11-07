@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <cstdlib>
 #include <vector>
 #include <filesystem>
 #include <fstream>
@@ -150,13 +151,36 @@ namespace
 		return true;
 	}
 
+	// data[24] is OP1's TL.
+	bool expect_cursor_op1_tl(uint32_t line, uint32_t col, int expected)
+	{
+		const std::string json = ctrmml_cmd_wasm_find_cursor_channel_json(line, col);
+		const auto data = json.find("\"data\":[");
+		int value = -1;
+		if (data != std::string::npos)
+		{
+			size_t pos = data + 8;
+			for (int i = 0; i < 24 && pos != std::string::npos; ++i)
+				pos = json.find(',', pos) + 1;
+			value = std::atoi(json.c_str() + pos);
+		}
+		if (value != expected)
+		{
+			std::cerr << "cursor " << line << ':' << col << " expected OP1 TL " << expected
+								<< ", got " << json << '\n';
+			return false;
+		}
+		return true;
+	}
+
 	bool test_cursor_channel_instrument(const std::filesystem::path &dir)
 	{
 		const std::string text = "#platform megadrive\n" + fm_instrument(1, 4) + fm_instrument(2, 5) +
 				fm_instrument(3, 7) +
 				"A @1 c d e\n"  // line 16
 				"A @2 f g a\n"  // line 17
-				"B @1 c d @3 e\n"; // line 18
+				"B @1 c d @3 e\n"  // line 18
+				"C @1 'tl1 20' c 'tl1 40' d\n"; // line 19
 		if (ctrmml_cmd_wasm_compile(text.c_str(), dir.string().c_str()) != 0)
 		{
 			std::cerr << "cursor channel compile failed: " << ctrmml_cmd_wasm_get_compile_error() << '\n';
@@ -167,6 +191,8 @@ namespace
 		ok &= expect_cursor_instrument(17, 10, 2);
 		ok &= expect_cursor_instrument(18, 9, 1);
 		ok &= expect_cursor_instrument(18, 13, 3);
+		ok &= expect_cursor_op1_tl(19, 16, 20);
+		ok &= expect_cursor_op1_tl(19, 26, 40);
 		return ok;
 	}
 
