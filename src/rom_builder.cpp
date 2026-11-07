@@ -694,15 +694,14 @@ std::string format_rom_build_summary(const RomBuildResult &r, size_t rom_file_si
 		return s.str();
 	};
 
-	constexpr size_t kMaxRomSizeDisplay = 0x400000;
 	std::ostringstream os;
 	if (rom_file_size > 0)
 	{
 		double usage_pct =
-				100.0 * static_cast<double>(rom_file_size) / static_cast<double>(kMaxRomSizeDisplay);
+				100.0 * static_cast<double>(rom_file_size) / static_cast<double>(kMaxRomSize);
 		os << "rom      "
 			 << std::right << std::setw(8) << rom_file_size << " / "
-			 << kMaxRomSizeDisplay << " bytes ("
+			 << kMaxRomSize << " bytes ("
 			 << std::fixed << std::setprecision(2) << usage_pct << "%)\n";
 	}
 	os << format_region("driver", static_cast<size_t>(r.seq_offset), 0) << "\n";
