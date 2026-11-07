@@ -71,7 +71,7 @@ namespace
 		}
 	}
 
-	ExportResult export_wav_song(const std::shared_ptr<Song> &song, const std::string &out_path,
+	ExportResult render_wav_song(const std::shared_ptr<Song> &song, std::vector<uint8_t> &wav,
 			Ym2612ChipType chip_type)
 	{
 		if (!song)
@@ -87,7 +87,7 @@ namespace
 		// Pass 1: render to memory to determine total length and handle loops
 		const unsigned int fade_frames = kWavSampleRate * kWavFadeSeconds;
 		const unsigned int max_frames = kWavSampleRate * 600; // 10 minute safety limit
-		std::vector<uint8_t> wav(kWavHeaderSize);
+		wav.assign(kWavHeaderSize, 0);
 		wav.reserve(kWavHeaderSize + kWavSampleRate * 60 * kWavChannels * (kWavBitDepth / 8)); // ~1 min
 
 		std::vector<WAVE_32BS> scratch(kWavBufferFrames);
@@ -150,27 +150,37 @@ namespace
 			return {false, renderer.last_error()};
 
 		pack_wav_header(wav.data(), total_frames);
-		std::string error;
-		if (!write_binary_file(out_path, wav, error))
-			return {false, error};
 		return {true, {}};
 	}
 
 	ExportResult safe_export_wav_song(const std::shared_ptr<Song> &song, const std::string &out_path,
 			Ym2612ChipType chip_type)
 	{
-		try
-		{
-			return export_wav_song(song, out_path, chip_type);
-		}
-		catch (InputError &e)
-		{
-			return {false, e.what()};
-		}
-		catch (std::exception &e)
-		{
-			return {false, e.what()};
-		}
+		std::vector<uint8_t> wav;
+		ExportResult result = render_wav(song, wav, chip_type);
+		if (!result.ok)
+			return result;
+		std::string error;
+		if (!write_binary_file(out_path, wav, error))
+			return {false, error};
+		return {true, {}};
+	}
+}
+
+ExportResult render_wav(const std::shared_ptr<Song> &song, std::vector<uint8_t> &wav,
+		Ym2612ChipType chip_type)
+{
+	try
+	{
+		return render_wav_song(song, wav, chip_type);
+	}
+	catch (InputError &e)
+	{
+		return {false, e.what()};
+	}
+	catch (std::exception &e)
+	{
+		return {false, e.what()};
 	}
 }
 
